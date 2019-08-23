@@ -52,8 +52,10 @@ FluentTwoDMesh::extractSectionFlag(std::string line)
 }
 
 void
-FluentTwoDMesh::createMeshFromFile(std::string fileName, bool quiet)
+FluentTwoDMesh::createMeshFromFile(std::string fileName, bool quiet, bool debug)
 {
+  if(!quiet) std::cout << "Start read Fluent mesh file: " << fileName << std::endl;
+
   std::vector<std::string> lines;
   std::string line;
 
@@ -73,7 +75,7 @@ FluentTwoDMesh::createMeshFromFile(std::string fileName, bool quiet)
   }
 
   if(!quiet)
-    std::cout << "Total line number " << lines.size() << std::endl;
+    std::cout << ">>Total line number " << lines.size() << std::endl;
 
   bool parsing_end = false;
   unsigned int current_line_number = 0;
@@ -114,7 +116,7 @@ FluentTwoDMesh::createMeshFromFile(std::string fileName, bool quiet)
     std::string line = lines[current_line_number];
     if(line == "")
     {
-      if(!quiet) std::cout << "BLANK LINE, ignored" << std::endl;
+      if(debug) std::cout << "BLANK LINE, ignored" << std::endl;
       current_line_number++;  // move to the next line
     }
     else
@@ -125,26 +127,26 @@ FluentTwoDMesh::createMeshFromFile(std::string fileName, bool quiet)
       switch (flg)
       {
         case COMMENTS_FLAG:
-          if(!quiet) std::cout << "COMMENTS LINE: " << line << std::endl;
+          if(debug) std::cout << "COMMENTS LINE: " << line << std::endl;
           current_line_number++;  // move to the next line
           break;
 
         case HEADER_FLAG:
-          if(!quiet) std::cout << "HEADER LINE: " << line << std::endl;
+          if(debug) std::cout << "HEADER LINE: " << line << std::endl;
           current_line_number++;  // move to the next line
           break;
 
         case DIMENSIONS_FLAG:
-          if(!quiet) std::cout << "DIMENSIONS LINE: " << line << std::endl;
+          if(debug) std::cout << "DIMENSIONS LINE: " << line << std::endl;
           sscanf(line.c_str(), "(%d %d)", &dummy, &dimension);
 
-          if(dimension != dim)
+          if(dimension != _dim)
           {
             std::cerr << "Currently deal with 2-d mesh only\n";
             exit(1);
           }
 
-          if(!quiet) std::cout << "dimension is " << dimension << std::endl;
+          if(debug) std::cout << "dimension is " << dimension << std::endl;
           current_line_number++;  // move to the next line
           break;
 
@@ -157,14 +159,14 @@ FluentTwoDMesh::createMeshFromFile(std::string fileName, bool quiet)
               std::cerr << "ERROR: Fluent mesh, node id should start from 1. Please check your mesh file.\n";
               exit(1);
             }
-            total_Node_number = node_idx_end - node_idx_begin + 1;
+            _total_Node_number = node_idx_end - node_idx_begin + 1;
             if (!quiet)
-              std::cout << "NODES_FLAG (summary: " << node_idx_begin << " " << node_idx_end << ")" << std::endl;
+              std::cout << "NODES: (summary: " << node_idx_begin << " " << node_idx_end << ")" << std::endl;
           }
           else if (type == 1)
           {
             double x = 0, y = 0, z = 0;
-            if(!quiet) std::cout << "Nodes data begins" << std::endl;
+            if(!quiet) std::cout << "\n>>Reading nodes data begins" << std::endl;
             bool nodes_data_finished = false;
             long int index = 0;
             while(!nodes_data_finished)
@@ -177,12 +179,13 @@ FluentTwoDMesh::createMeshFromFile(std::string fileName, bool quiet)
                 // std::cout << "x y z " << x << " " << y << " " << z << std::endl;
                 Node node(x, y, z);
                 node.id() = index + 1;    // NOTE: Fluent mesh, node id starts from 1
-                NodeSet.push_back(node);
+                _NodeSet.push_back(node);
                 index ++;
               }
               if(index == node_idx_end - node_idx_begin + 1)
                 nodes_data_finished = true;
             }
+            if(!quiet) std::cout << "<<Reading nodes data ends." << std::endl;
           }
           else
           {
@@ -197,13 +200,13 @@ FluentTwoDMesh::createMeshFromFile(std::string fileName, bool quiet)
           sscanf(line.c_str(), "(12 (%d %lx %lx 0 %d)", &type, &cell_idx_begin, &cell_idx_end, &cell_type);
           if (type == 0)
           {
-            total_Cell_number = cell_idx_end - cell_idx_begin + 1;
+            _total_Cell_number = cell_idx_end - cell_idx_begin + 1;
             if(!quiet)
-              std::cout << "CELLS_FLAG (summary: " << cell_idx_begin << " " << cell_idx_end << ")" << std::endl;
+              std::cout << "CELLS: (summary: " << cell_idx_begin << " " << cell_idx_end << ")" << std::endl;
           }
           else if (type == 1)
           {
-            if(!quiet)
+            if(debug)
             {
               std::cout << "Cells data begins" << std::endl;
               std::cout << "We don't deal with it for 2d surface mesh." << std::endl;
@@ -222,13 +225,15 @@ FluentTwoDMesh::createMeshFromFile(std::string fileName, bool quiet)
           sscanf(line.c_str(), "(13 (%d %lx %lx %d %d)", &zone_id, &face_idx_begin, &face_idx_end, &face_type, &element_type);
           if (zone_id == 0)
           {
-            std::cout << "face_idx_begin = " << face_idx_begin << std::endl;
-            std::cout << "face_idx_end = " << face_idx_end << std::endl;
             //total_Face_number = face_idx_begin - face_idx_end + 1;
-            total_Face_number = face_idx_end - face_idx_begin + 1;
-            std::cout << "total_Face_number = " << total_Face_number << std::endl;
+            _total_Face_number = face_idx_end - face_idx_begin + 1;
             if(!quiet)
-              std::cout << "FACES_FLAG (summary: " << face_idx_begin << " " << face_idx_end << ")" << std::endl;
+            {
+              std::cout << "FACES: (summary: " << face_idx_begin << " " << face_idx_end << ")" << std::endl;
+              //std::cout << "  face_idx_begin = " << face_idx_begin << std::endl;
+              //std::cout << "  face_idx_end = " << face_idx_end << std::endl;
+              //std::cout << "  total_Face_number = " << _total_Face_number << std::endl;
+            }
           }
           else if (zone_id > 0)
           {
@@ -237,7 +242,10 @@ FluentTwoDMesh::createMeshFromFile(std::string fileName, bool quiet)
             std::vector<Face> faces;
 
             if(!quiet)
-              std::cout << "FACES_FLAG (zone: " << zone_id << " " << face_idx_begin << " " << face_idx_end << ")" << std::endl;
+            {
+              std::cout << "\n>>Reading faces in zone " << zone_id << std::endl;
+              std::cout << "FACES: (zone: " << zone_id << " " << face_idx_begin << " " << face_idx_end << ")" << std::endl;
+            }
             bool faces_data_finished = false;
             long int index = 0;
             long int node_id1, node_id2, cell_id1, cell_id2;
@@ -251,7 +259,7 @@ FluentTwoDMesh::createMeshFromFile(std::string fileName, bool quiet)
                 // std::cout << "n1 n2 c1 c2 " << node1 << " " << node2 << " " << cell1 << " " << cell2 << std::endl;
                 Face face(node_id1, node_id2, cell_id1, cell_id2, face_id++);
                 //face.id() = face_id;
-                Vec3d vec = (NodeSet[node_id2 - 1]).point() - (NodeSet[node_id1 - 1]).point();
+                Vec3d vec = (_NodeSet[node_id2 - 1]).point() - (_NodeSet[node_id1 - 1]).point();
                 face.area() = vec.norm();
                 face.setFaceNormal(vec.y(), -vec.x(), 0.0);
 
@@ -266,7 +274,12 @@ FluentTwoDMesh::createMeshFromFile(std::string fileName, bool quiet)
             }
 
             //FaceZones.push_back(face_zone);
-            FaceZoneMap[zone_id] = faces;
+            _FaceZoneMap[zone_id] = faces;
+
+            if(!quiet)
+            {
+              std::cout << "<<Reading faces in zone " << zone_id << " end" << std::endl;
+            }
           }
           else
           {
@@ -300,14 +313,16 @@ FluentTwoDMesh::createMeshFromFile(std::string fileName, bool quiet)
 
   inFile.close();
 
+  if(!quiet) std::cout << "End of read Fluent mesh file: " << fileName << std::endl;
+
   /* debug */
   /*
   std::cout << "Nodes info:\n";
-  for (unsigned int i = 0; i < NodeSet.size(); i++)
-    std::cout << NodeSet[i].id() << "    " << NodeSet[i].x() << "    " << NodeSet[i].y() << "    " << NodeSet[i].z() << std::endl;
+  for (unsigned int i = 0; i < _NodeSet.size(); i++)
+    std::cout << _NodeSet[i].id() << "    " << _NodeSet[i].x() << "    " << _NodeSet[i].y() << "    " << _NodeSet[i].z() << std::endl;
 
   std::cout << "Faces info:\n";
-  for (std::map<int, std::vector<Face> >::iterator it = FaceZoneMap.begin(); it != FaceZoneMap.end(); ++it)
+  for (std::map<int, std::vector<Face> >::iterator it = _FaceZoneMap.begin(); it != _FaceZoneMap.end(); ++it)
   {
     std::cout << "Zone id: " << it->first << std::endl;
     for (unsigned int j = 0; j < it->second.size(); j++)
@@ -325,21 +340,27 @@ FluentTwoDMesh::createMeshFromFile(std::string fileName, bool quiet)
   // Fluent two-d mesh data structure does not provide cell info directly.
   // Alternatively, nodes and faces are given. Adjacent cell ids of a face are given.
   // Therefore, cell data could be reconstructed while not necessarily stored.
+  if(!quiet) std::cout << "\nNow processing data: " << std::endl;
   ProcessCellData();
+  if(!quiet) std::cout << "Processing data end." << std::endl;
+
+  if(!quiet) std::cout << "\nNow check if faces are properly oriented: " << std::endl;
   CheckFaceOrientation();
+  if(!quiet) std::cout << "Face check end.\nEverything looks ok." << std::endl;
+  if(!quiet) std::cout << "++++++++++This is the end of FluentTwoDMesh Reading++++++++++" << std::endl << std::endl;
 }
 
 void
 FluentTwoDMesh::ProcessCellData()
 {
   // We are going to reconstruct cell data from given faces and nodes data
-  CellSet.resize(total_Cell_number, FluentTriCell()); //empty container
+  _CellSet.resize(_total_Cell_number, FluentTriCell()); //empty container
 
   // std::cout << "ProcessCellData start\n";
   // Loop on faces to update cell info
-  for (std::map<int, std::vector<Face> >::iterator it = FaceZoneMap.begin(); it != FaceZoneMap.end(); ++it)
+  for (std::map<int, std::vector<Face> >::iterator it = _FaceZoneMap.begin(); it != _FaceZoneMap.end(); ++it)
   {
-    std::cout << "Zone id: " << it->first << std::endl;
+    // std::cout << "Zone id: " << it->first << std::endl;
     for (unsigned int j = 0; j < (it->second).size(); j++)
     {
       Face & face = (it->second)[j];
@@ -348,45 +369,46 @@ FluentTwoDMesh::ProcessCellData()
 
       if (cell_id1 > 0)
       {
-        CellSet[cell_id1-1].addFaceAndNodes(&(it->second)[j]);
-        CellSet[cell_id1-1].addNeighborCellID(cell_id2);
+        _CellSet[cell_id1-1].addFaceAndNodes(&(it->second)[j]);
+        _CellSet[cell_id1-1].addNeighborCellID(cell_id2);
       }
       if (cell_id2 > 0)
       {
-        CellSet[cell_id2-1].addFaceAndNodes(&(it->second)[j]);
-        CellSet[cell_id2-1].addNeighborCellID(cell_id1);
+        _CellSet[cell_id2-1].addFaceAndNodes(&(it->second)[j]);
+        _CellSet[cell_id2-1].addNeighborCellID(cell_id1);
       }
     }
   }
 
   double total_volume = 0.0;
-  for (long int i = 0; i < CellSet.size(); i++)
+  for (long int i = 0; i < _CellSet.size(); i++)
   {
     // sanity check
-    if (CellSet[i].getNodeIDs().size() != 3)
-      std::cerr << i+1 << "-th cell has nodes number: " << CellSet[i].getNodeIDs().size() << std::endl;
-    if (CellSet[i].getFaceIDs().size() != 3)
-      std::cerr << i+1 << "-th cell has faces number: " << CellSet[i].getFaceIDs().size() << std::endl;
+    if (_CellSet[i].getNodeIDs().size() != 3)
+      std::cerr << i+1 << "-th cell has nodes number: " << _CellSet[i].getNodeIDs().size() << std::endl;
+    if (_CellSet[i].getFaceIDs().size() != 3)
+      std::cerr << i+1 << "-th cell has faces number: " << _CellSet[i].getFaceIDs().size() << std::endl;
 
     // centroid
-    std::vector<long int> node_ids = CellSet[i].getNodeIDs();
+    std::vector<long int> node_ids = _CellSet[i].getNodeIDs();
     double x_centroid = 0.0, y_centroid = 0.0, z_centroid = 0.0;
     for (int k = 0; k < node_ids.size(); k++)
     {
-      x_centroid += NodeSet[node_ids[k]-1].x() / 3.0;
-      y_centroid += NodeSet[node_ids[k]-1].y() / 3.0;
-      z_centroid += NodeSet[node_ids[k]-1].z() / 3.0;
+      x_centroid += _NodeSet[node_ids[k]-1].x() / 3.0;
+      y_centroid += _NodeSet[node_ids[k]-1].y() / 3.0;
+      z_centroid += _NodeSet[node_ids[k]-1].z() / 3.0;
     }
-    CellSet[i].setCentroid(x_centroid, y_centroid, z_centroid);
-    CellSet[i].id() = i + 1;
+    _CellSet[i].setCentroid(x_centroid, y_centroid, z_centroid);
+    _CellSet[i].id() = i + 1;
 
     // area
-    Vec3d face_vec_1 = NodeSet[node_ids[1] - 1].point() - NodeSet[node_ids[0] - 1].point();
-    Vec3d face_vec_2 = NodeSet[node_ids[2] - 1].point() - NodeSet[node_ids[1] - 1].point();
+    Vec3d face_vec_1 = _NodeSet[node_ids[1] - 1].point() - _NodeSet[node_ids[0] - 1].point();
+    Vec3d face_vec_2 = _NodeSet[node_ids[2] - 1].point() - _NodeSet[node_ids[1] - 1].point();
     Vec3d cross_product = face_vec_1.cross(face_vec_2);
-    if (cross_product.z() < 0) CellSet[i].reorderNodeIDs();
-    CellSet[i].volume() = 0.5 * cross_product.norm();
-    total_volume += CellSet[i].volume();
+    if (cross_product.z() < 0)
+      _CellSet[i].reorderNodeIDs();
+    _CellSet[i].volume() = 0.5 * cross_product.norm();
+    total_volume += _CellSet[i].volume();
   }
   std::cerr << "total volume = " << total_volume << std::endl;
 }
@@ -394,9 +416,9 @@ FluentTwoDMesh::ProcessCellData()
 void
 FluentTwoDMesh::CheckFaceOrientation()
 {
-  for (std::map<int, std::vector<Face> >::iterator it = FaceZoneMap.begin(); it != FaceZoneMap.end(); ++it)
+  for (std::map<int, std::vector<Face> >::iterator it = _FaceZoneMap.begin(); it != _FaceZoneMap.end(); ++it)
   {
-    std::cout << "Zone id: " << it->first << std::endl;
+    // std::cout << "Zone id: " << it->first << std::endl;
     for (unsigned int j = 0; j < (it->second).size(); j++)
     {
       Face & face = (it->second)[j];
@@ -405,12 +427,12 @@ FluentTwoDMesh::CheckFaceOrientation()
       long int cell_id1 = face.cell_id1();
       long int cell_id2 = face.cell_id2();
 
-      Vec3d face_vec = NodeSet[node_id2 - 1].point() - NodeSet[node_id1 - 1].point();
+      Vec3d face_vec = _NodeSet[node_id2 - 1].point() - _NodeSet[node_id1 - 1].point();
 
       if (cell_id1 > 0)
       {
-        const Point ct = CellSet[cell_id1-1].centroid();
-        Vec3d node2_to_ct = ct - NodeSet[node_id2 - 1].point();
+        const Point ct = _CellSet[cell_id1-1].centroid();
+        Vec3d node2_to_ct = ct - _NodeSet[node_id2 - 1].point();
         Vec3d cross_product = face_vec.cross(node2_to_ct);
         if (cross_product.z() < 0.0)
         {
@@ -420,8 +442,8 @@ FluentTwoDMesh::CheckFaceOrientation()
       }
       else
       {
-        const Point ct = CellSet[cell_id2-1].centroid();
-        Vec3d node2_to_ct = ct - NodeSet[node_id2 - 1].point();
+        const Point ct = _CellSet[cell_id2-1].centroid();
+        Vec3d node2_to_ct = ct - _NodeSet[node_id2 - 1].point();
         Vec3d cross_product = face_vec.cross(node2_to_ct);
         if (cross_product.z() > 0.0)
         {
@@ -433,7 +455,7 @@ FluentTwoDMesh::CheckFaceOrientation()
   }
 
   // test
-  std::vector<Face> int_face = FaceZoneMap[7];
+  std::vector<Face> int_face = _FaceZoneMap[7];
   for (int i = 0; i < int_face.size(); i++)
   {
     Face & face = int_face[i];
@@ -442,9 +464,9 @@ FluentTwoDMesh::CheckFaceOrientation()
     long int cell_id1 = face.cell_id1();
     long int cell_id2 = face.cell_id2();
 
-    Vec3d face_vec = NodeSet[node_id2 - 1].point() - NodeSet[node_id1 - 1].point();
-    Point ct1 = CellSet[cell_id1-1].centroid();
-    Point ct2 = CellSet[cell_id2-1].centroid();
+    Vec3d face_vec = _NodeSet[node_id2 - 1].point() - _NodeSet[node_id1 - 1].point();
+    Point ct1 = _CellSet[cell_id1-1].centroid();
+    Point ct2 = _CellSet[cell_id2-1].centroid();
     Vec3d ct_to_ct = ct2 - ct1;
 
     Vec3d cross_product = face_vec.cross(ct_to_ct);
@@ -461,14 +483,14 @@ FluentTwoDMesh::writeMesh(FILE * ptr_File)
   // file head
   out_string_stream << "<VTKFile type=\"UnstructuredGrid\" version=\"0.1\" byte_order=\"LittleEndian\">" << "\n";
   out_string_stream << TAB2 << "<UnstructuredGrid>" << "\n";
-  out_string_stream << TAB4 << "<Piece NumberOfPoints=\"" << NodeSet.size() << "\" NumberOfCells=\"" << CellSet.size() << "\">" << "\n";
+  out_string_stream << TAB4 << "<Piece NumberOfPoints=\"" << _NodeSet.size() << "\" NumberOfCells=\"" << _CellSet.size() << "\">" << "\n";
 
   // POINTS
   out_string_stream << TAB6 << "<Points>" << "\n";    // POINTS begins
 
   out_string_stream << TAB8 << "<DataArray type = \"Float32\" NumberOfComponents=\"3\" format=\"ascii\">" << "\n";
-  for(unsigned int i = 0; i < NodeSet.size(); i++)
-    out_string_stream << TAB10 << NodeSet[i].x() << TAB2 << NodeSet[i].y() << TAB2 << NodeSet[i].z() << "\n";
+  for(unsigned int i = 0; i < _NodeSet.size(); i++)
+    out_string_stream << TAB10 << _NodeSet[i].x() << TAB2 << _NodeSet[i].y() << TAB2 << _NodeSet[i].z() << "\n";
   out_string_stream << TAB8 << "</DataArray>" << "\n";
 
   out_string_stream << TAB6 << "</Points>" << "\n";   // POINTS ends
@@ -477,20 +499,20 @@ FluentTwoDMesh::writeMesh(FILE * ptr_File)
   out_string_stream << TAB6 << "<Cells>" << "\n";     // CELLS begins
 
   out_string_stream << TAB8 << "<DataArray type = \"Int32\" Name=\"connectivity\" format=\"ascii\">" << "\n";
-  for(unsigned int i = 0; i < CellSet.size(); i++)
+  for(unsigned int i = 0; i < _CellSet.size(); i++)
   {
-    std::vector<long int> node_ids = CellSet[i].getNodeIDs();
+    std::vector<long int> node_ids = _CellSet[i].getNodeIDs();
     out_string_stream << TAB10 << node_ids[0] - 1 << TAB2 << node_ids[1] - 1 << TAB2 << node_ids[2] - 1 << "\n";
   }
   out_string_stream << TAB8 << "</DataArray>" << "\n";
 
   out_string_stream << TAB8 << "<DataArray type = \"Int32\" Name=\"offsets\" format=\"ascii\">" << "\n";
-  for(unsigned int i = 0; i < CellSet.size(); i++)
+  for(unsigned int i = 0; i < _CellSet.size(); i++)
     out_string_stream << TAB10 << (int)(3*i+3) << "\n";
   out_string_stream << TAB8 << "</DataArray>" << "\n";
 
   out_string_stream << TAB8 << "<DataArray type = \"UInt8\" Name=\"types\" format=\"ascii\">" << "\n";
-  for(unsigned int i = 0; i < CellSet.size(); i++)
+  for(unsigned int i = 0; i < _CellSet.size(); i++)
     out_string_stream << TAB10 << "5" << "\n";
   out_string_stream << TAB8 << "</DataArray>" << "\n";
 
@@ -540,14 +562,14 @@ FluentTwoDMesh::WriteVTUFile()
   // file head
   out_string_stream << "<VTKFile type=\"UnstructuredGrid\" version=\"0.1\" byte_order=\"LittleEndian\">" << "\n";
   out_string_stream << TAB2 << "<UnstructuredGrid>" << "\n";
-  out_string_stream << TAB4 << "<Piece NumberOfPoints=\"" << NodeSet.size() << "\" NumberOfCells=\"" << CellSet.size() << "\">" << "\n";
+  out_string_stream << TAB4 << "<Piece NumberOfPoints=\"" << _NodeSet.size() << "\" NumberOfCells=\"" << _CellSet.size() << "\">" << "\n";
 
   // POINTS
   out_string_stream << TAB6 << "<Points>" << "\n";    // POINTS begins
 
   out_string_stream << TAB8 << "<DataArray type = \"Float32\" NumberOfComponents=\"3\" format=\"ascii\">" << "\n";
-  for(unsigned int i = 0; i < NodeSet.size(); i++)
-    out_string_stream << TAB10 << NodeSet[i].x() << TAB2 << NodeSet[i].y() << TAB2 << NodeSet[i].z() << "\n";
+  for(unsigned int i = 0; i < _NodeSet.size(); i++)
+    out_string_stream << TAB10 << _NodeSet[i].x() << TAB2 << _NodeSet[i].y() << TAB2 << _NodeSet[i].z() << "\n";
   out_string_stream << TAB8 << "</DataArray>" << "\n";
 
   out_string_stream << TAB6 << "</Points>" << "\n";   // POINTS ends
@@ -556,20 +578,20 @@ FluentTwoDMesh::WriteVTUFile()
   out_string_stream << TAB6 << "<Cells>" << "\n";     // CELLS begins
 
   out_string_stream << TAB8 << "<DataArray type = \"Int32\" Name=\"connectivity\" format=\"ascii\">" << "\n";
-  for(unsigned int i = 0; i < CellSet.size(); i++)
+  for(unsigned int i = 0; i < _CellSet.size(); i++)
   {
-    std::vector<long int> node_ids = CellSet[i].getNodeIDs();
+    std::vector<long int> node_ids = _CellSet[i].getNodeIDs();
     out_string_stream << TAB10 << node_ids[0] - 1 << TAB2 << node_ids[1] - 1 << TAB2 << node_ids[2] - 1 << "\n";
   }
   out_string_stream << TAB8 << "</DataArray>" << "\n";
 
   out_string_stream << TAB8 << "<DataArray type = \"Int32\" Name=\"offsets\" format=\"ascii\">" << "\n";
-  for(unsigned int i = 0; i < CellSet.size(); i++)
+  for(unsigned int i = 0; i < _CellSet.size(); i++)
     out_string_stream << TAB10 << (int)(3*i+3) << "\n";
   out_string_stream << TAB8 << "</DataArray>" << "\n";
 
   out_string_stream << TAB8 << "<DataArray type = \"UInt8\" Name=\"types\" format=\"ascii\">" << "\n";
-  for(unsigned int i = 0; i < CellSet.size(); i++)
+  for(unsigned int i = 0; i < _CellSet.size(); i++)
     out_string_stream << TAB10 << "5" << "\n";
   out_string_stream << TAB8 << "</DataArray>" << "\n";
 
@@ -582,19 +604,19 @@ FluentTwoDMesh::WriteVTUFile()
 
   // CELL DATA (cell ID)
   out_string_stream << TAB8 << "<DataArray type=\"Float32\" Name=\"Cell_ID\" format=\"ascii\">" << "\n";
-  for(unsigned int i = 0; i < total_Cell_number; i++)
-    out_string_stream << TAB10 << CellSet[i].id() << "\n";
+  for(unsigned int i = 0; i < _total_Cell_number; i++)
+    out_string_stream << TAB10 << _CellSet[i].id() << "\n";
   out_string_stream << TAB8 << "</DataArray>" << "\n";
   // CELL DATA (volume)
   out_string_stream << TAB8 << "<DataArray type=\"Float32\" Name=\"volume\" format=\"ascii\">" << "\n";
-  for(unsigned int i = 0; i < total_Cell_number; i++)
-    out_string_stream << TAB10 << CellSet[i].volume() << "\n";
+  for(unsigned int i = 0; i < _total_Cell_number; i++)
+    out_string_stream << TAB10 << _CellSet[i].volume() << "\n";
   out_string_stream << TAB8 << "</DataArray>" << "\n";
   // CELL DATA (temperature)
   out_string_stream << TAB8 << "<DataArray type=\"Float32\" Name=\"temperature\" format=\"ascii\">" << "\n";
-  for(unsigned int i = 0; i < total_Cell_number; i++)
+  for(unsigned int i = 0; i < _total_Cell_number; i++)
   {
-    double x = CellSet[i].centroid().x(); double y = CellSet[i].centroid().y();
+    double x = _CellSet[i].centroid().x(); double y = _CellSet[i].centroid().y();
     out_string_stream << TAB10 << sin(2.0 * 3.14159265 * x) * cos(3.14159265 * y) << "\n";
   }
   out_string_stream << TAB8 << "</DataArray>" << "\n";
@@ -606,8 +628,8 @@ FluentTwoDMesh::WriteVTUFile()
   out_string_stream << TAB6 << "<PointData>" << "\n";
   // NODE ID
   out_string_stream << TAB8 << "<DataArray type=\"Float32\" Name=\"Node_ID\" format=\"ascii\">" << "\n";
-  for(unsigned int i = 0; i < total_Node_number; i++)
-    out_string_stream << TAB10 << NodeSet[i].id() << "\n";
+  for(unsigned int i = 0; i < _total_Node_number; i++)
+    out_string_stream << TAB10 << _NodeSet[i].id() << "\n";
   out_string_stream << TAB8 << "</DataArray>" << "\n";
 
   out_string_stream << TAB6 << "</PointData>" << "\n";

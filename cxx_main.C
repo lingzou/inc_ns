@@ -243,7 +243,7 @@ int main(int argc, char **argv)
   PetscInitialize(&argc, &argv, (char *)0, PETSC_NULL);
 
   FluentTwoDMesh * p_mesh = new FluentTwoDMesh();
-  p_mesh->createMeshFromFile("cavity.msh");
+  p_mesh->createMeshFromFile("cavity.msh", false, false);
   std::cout << "# of faces: " << p_mesh->n_Faces() << std::endl;
 
   const std::vector<Node> & node_set = p_mesh->getNodeSet();

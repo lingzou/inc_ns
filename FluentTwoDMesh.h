@@ -18,7 +18,8 @@
 
 class Face {
 public:
-  Face() {}
+  Face() : _node_id1(-1), _node_id2(-1), _cell_id1(-1), _cell_id2(-1),
+  _id(-1) {}
   ~Face() {}
 
   Face(long int node_id1, long int node_id2, long int cell_id1, long int cell_id2, long int face_id) :
@@ -50,7 +51,7 @@ protected:
 
 class FluentTriCell {
 public:
-  FluentTriCell() {}
+  FluentTriCell() : _id(-1), _volume(-1.0) {}
   ~FluentTriCell() {}
 
   inline const long int id() const { return _id; }
@@ -94,11 +95,11 @@ protected:
 
 class FluentTwoDMesh {
 public:
-  FluentTwoDMesh():dim(2) {}
+  FluentTwoDMesh():_dim(2) {}
   ~FluentTwoDMesh() {}
 
-  void createMeshFromFile(std::string fileName, bool quiet = true);
-  unsigned const int Dim() const { return dim; }
+  void createMeshFromFile(std::string fileName, bool quiet = true, bool debug = false);
+  unsigned const int Dim() const { return _dim; }
   void ProcessCellData();
   void CheckFaceOrientation();
   // void WriteVTKFile(FILE * ptr_File, const char* fileName);
@@ -106,13 +107,13 @@ public:
   void WriteVTUFile();
   void writeMesh(FILE *);
   void finishFile(FILE *);
-  const unsigned int n_Nodes() const { return total_Node_number; }
-  const unsigned int n_Faces() const { return total_Face_number; }
-  const unsigned int n_Cells() const { return total_Cell_number; }
+  const unsigned int n_Nodes() const { return _total_Node_number; }
+  const unsigned int n_Faces() const { return _total_Face_number; }
+  const unsigned int n_Cells() const { return _total_Cell_number; }
 
-  const std::vector<Node> & getNodeSet() const { return NodeSet; }
-  std::map<int, std::vector<Face> > & getFaceZoneMap() { return FaceZoneMap; }
-  const std::vector<FluentTriCell> & getCellSet() const { return CellSet; }
+  const std::vector<Node> & getNodeSet() const { return _NodeSet; }
+  std::map<int, std::vector<Face> > & getFaceZoneMap() { return _FaceZoneMap; }
+  const std::vector<FluentTriCell> & getCellSet() const { return _CellSet; }
 
 protected:
   // File parser interfaces
@@ -133,14 +134,14 @@ protected:
   SectionFlag extractSectionFlag(std::string line);
 
 protected:
-  unsigned int dim;
-  long int total_Node_number;
-  long int total_Face_number;
-  long int total_Cell_number;
+  unsigned int _dim;
+  long int _total_Node_number;
+  long int _total_Face_number;
+  long int _total_Cell_number;
 
-  std::vector<Node> NodeSet;
-  std::map<int, std::vector<Face> > FaceZoneMap;
-  std::vector<FluentTriCell> CellSet;
+  std::vector<Node> _NodeSet;
+  std::map<int, std::vector<Face> > _FaceZoneMap;
+  std::vector<FluentTriCell> _CellSet;
 };
 
 #endif

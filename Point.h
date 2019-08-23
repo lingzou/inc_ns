@@ -14,7 +14,7 @@
 
 class Vec3d {
 public:
-  Vec3d() {}
+  Vec3d() : _x(0.0), _y(0.0), _z(0.0) {}
   ~Vec3d() {}
 
   Vec3d(double xx, double yy, double zz) :
@@ -40,7 +40,7 @@ public:
 
   inline Vec3d operator / (const double & s) const
   {
-    if(s == 0)
+    if(s == 0)  // Not the best way to check 0; FIXME
     {
       std::cerr << "File: " << __FILE__ << std::endl;
       std::cerr << "Function: " << __FUNCTION__ << std::endl;
@@ -63,7 +63,7 @@ public:
 
   Vec3d unitVector()
   {
-    if(norm() == 0)
+    if(norm() == 0)  // Not the best way to check 0; FIXME
       return Vec3d(0, 0, 0);
     else
       return (*this) / norm();
@@ -76,7 +76,7 @@ protected:
 class Point
 {
 public:
-  Point()
+  Point() : _x(0.0), _y(0.0), _z(0.0)
   {}
 
   Point(double xx, double yy, double zz) :
