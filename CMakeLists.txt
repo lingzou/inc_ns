@@ -59,6 +59,7 @@ add_definitions (${PETSC_DEFINITIONS})
 # additional include(s)
 include_directories (${CMAKE_SOURCE_DIR})
 include_directories (${CMAKE_SOURCE_DIR}/include)
+include_directories (/Users/lingzou/projects/Fluent2DMesh FLUENT_MESH)
 
 #link_directories (${CMAKE_SOURCE_DIR}/solver)
 
@@ -68,11 +69,12 @@ set (CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 # Lists of all source file subdirectories
 AUX_SOURCE_DIRECTORY(${CMAKE_SOURCE_DIR} SRC_ROOT)
 AUX_SOURCE_DIRECTORY(${CMAKE_SOURCE_DIR}/src SRC)
+AUX_SOURCE_DIRECTORY(/Users/lingzou/projects/Fluent2DMesh FLUENT_MESH)
 #message ("SRC_ROOT" ${SRC_ROOT})
 #message ("SRC_PROBLEMS" ${SRC_PROBLEMS})
 
 
-ADD_EXECUTABLE (inc_exec ${SRC_ROOT} ${SRC})
+ADD_EXECUTABLE (inc_exec ${SRC_ROOT} ${SRC} ${FLUENT_MESH})
 #TARGET_LINK_LIBRARIES(PETScApp ${PETSC_LIBRARIES} PETScInterface)
 #TARGET_LINK_LIBRARIES(inc_exec ${PETSC_LIBRARIES})
 TARGET_LINK_LIBRARIES(inc_exec ${PETSC_LIBRARIES})
