@@ -346,9 +346,10 @@ int main(int argc, char **argv)
 
   // KSP stuffs
   std::cout << "KSP START" << std::endl;
-  Mat       M_USTAR; //, M_VSTAR;
-  Vec       u_STAR, b_USTAR; //, b_VSTAR;
-  KSP       ksp_USTAR;
+  Mat       M_USTAR_FIXED, M_VSTAR_FIXED;
+  Vec       u_STAR, b_USTAR;
+  Vec       v_STAR, b_VSTAR;
+  KSP       ksp_USTAR, ksp_VSTAR;
 
   std::cout << "KSP START SETUP" << std::endl;
 
@@ -356,16 +357,27 @@ int main(int argc, char **argv)
   VecSetSizes(u_STAR, PETSC_DECIDE, n_Cell);
   VecSetFromOptions(u_STAR);
   VecDuplicate(u_STAR, &b_USTAR);
-  MatCreateSeqAIJ(PETSC_COMM_SELF, n_Cell, n_Cell, 10, NULL, &M_USTAR);  // 10 is the max possible neighbor cell numbers for a cell
-  MatSetOption(M_USTAR, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
+  VecDuplicate(u_STAR, &v_STAR);
+  VecDuplicate(u_STAR, &b_VSTAR);
+
+  MatCreateSeqAIJ(PETSC_COMM_SELF, n_Cell, n_Cell, 10, NULL, &M_USTAR_FIXED);  // 10 is the max possible neighbor cell numbers for a cell
+  MatSetOption(M_USTAR_FIXED, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
   KSPCreate(PETSC_COMM_WORLD, &ksp_USTAR);
-  KSPSetOperators(ksp_USTAR, M_USTAR, M_USTAR);
+  KSPSetOperators(ksp_USTAR, M_USTAR_FIXED, M_USTAR_FIXED);
   KSPSetFromOptions(ksp_USTAR);
+
+  MatCreateSeqAIJ(PETSC_COMM_SELF, n_Cell, n_Cell, 10, NULL, &M_VSTAR_FIXED);  // 10 is the max possible neighbor cell numbers for a cell
+  MatSetOption(M_VSTAR_FIXED, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
+  KSPCreate(PETSC_COMM_WORLD, &ksp_VSTAR);
+  KSPSetOperators(ksp_VSTAR, M_VSTAR_FIXED, M_VSTAR_FIXED);
+  KSPSetFromOptions(ksp_VSTAR);
 
   std::cout << "KSP END SETUP" << std::endl;
 
   PetscScalar * bb_ustar;
+  PetscScalar * bb_vstar;
   VecGetArray(b_USTAR, &bb_ustar);
+  VecGetArray(b_VSTAR, &bb_vstar);
 
   for (std::map<int, std::vector<Face> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
   {
@@ -397,10 +409,12 @@ int main(int argc, char **argv)
           PetscInt col[1]; col[0] = row;
           double val[1];
           val[0] = face.area() / distance;
-          MatSetValues(M_USTAR, 1, &row, 1, col, val, ADD_VALUES);
+          MatSetValues(M_USTAR_FIXED, 1, &row, 1, col, val, ADD_VALUES);
+          MatSetValues(M_VSTAR_FIXED, 1, &row, 1, col, val, ADD_VALUES);
 
           double U_BC = 1.0;
           if (zone == 5) bb_ustar[row] = face.area() / distance * U_BC;
+          // no rhs for v_star
         }
       }
       break;
@@ -437,11 +451,17 @@ int main(int argc, char **argv)
           double val[1], nval[1];
 
           col[0] = r1; val[0] = area_f / distance; nval[0] = -val[0];
-          MatSetValues(M_USTAR, 1, &r1, 1, col, val, ADD_VALUES);   // cell 1 diag
-          MatSetValues(M_USTAR, 1, &r2, 1, col, nval, ADD_VALUES);  // cell 2 off-diag
+          MatSetValues(M_USTAR_FIXED, 1, &r1, 1, col, val, ADD_VALUES);   // cell 1 diag
+          MatSetValues(M_USTAR_FIXED, 1, &r2, 1, col, nval, ADD_VALUES);  // cell 2 off-diag
+          // copy & paste for VSTAR
+          MatSetValues(M_VSTAR_FIXED, 1, &r1, 1, col, val, ADD_VALUES);   // cell 1 diag
+          MatSetValues(M_VSTAR_FIXED, 1, &r2, 1, col, nval, ADD_VALUES);  // cell 2 off-diag
           col[0] = r2;
-          MatSetValues(M_USTAR, 1, &r1, 1, col, nval, ADD_VALUES);  // cell 1 off-diag
-          MatSetValues(M_USTAR, 1, &r2, 1, col, val, ADD_VALUES);   // cell 2 diag
+          MatSetValues(M_USTAR_FIXED, 1, &r1, 1, col, nval, ADD_VALUES);  // cell 1 off-diag
+          MatSetValues(M_USTAR_FIXED, 1, &r2, 1, col, val, ADD_VALUES);   // cell 2 diag
+          // copy & paste for VSTAR
+          MatSetValues(M_VSTAR_FIXED, 1, &r1, 1, col, nval, ADD_VALUES);  // cell 1 off-diag
+          MatSetValues(M_VSTAR_FIXED, 1, &r2, 1, col, val, ADD_VALUES);   // cell 2 diag
 
           int size1 = grad_u_star[cell_id1-1].size;
           if (size1 > 3) {std::cerr<<"size1 > 3\n"; exit(1);}
@@ -453,11 +473,17 @@ int main(int argc, char **argv)
             val1[i] *= (area_f * alpha_12);
             nval1[i] = -val1[i];
           }
-          MatSetValues(M_USTAR, 1, &r1, size1+1, col1, val1, ADD_VALUES); // cell 1 off-diag
-          MatSetValues(M_USTAR, 1, &r2, size1+1, col1, nval1, ADD_VALUES); // cell 2 off-diag
+          MatSetValues(M_USTAR_FIXED, 1, &r1, size1+1, col1, val1, ADD_VALUES); // cell 1 off-diag
+          MatSetValues(M_USTAR_FIXED, 1, &r2, size1+1, col1, nval1, ADD_VALUES); // cell 2 off-diag
           double bc_contribution = area_f * alpha_12 * (grad_u_star[cell_id1-1].bc_x * n2.x() + grad_u_star[cell_id1-1].bc_y * n2.y());
           bb_ustar[r1] += bc_contribution;
           bb_ustar[r2] -= bc_contribution;
+          // copy & paste for VSTAR
+          MatSetValues(M_VSTAR_FIXED, 1, &r1, size1+1, col1, val1, ADD_VALUES); // cell 1 off-diag
+          MatSetValues(M_VSTAR_FIXED, 1, &r2, size1+1, col1, nval1, ADD_VALUES); // cell 2 off-diag
+          bc_contribution = area_f * alpha_12 * (grad_v_star[cell_id1-1].bc_x * n2.x() + grad_v_star[cell_id1-1].bc_y * n2.y());
+          bb_vstar[r1] += bc_contribution;
+          bb_vstar[r2] -= bc_contribution;
 
           int size2 = grad_u_star[cell_id2-1].size;
           if (size2 > 3) {std::cerr<<"size2 > 3\n"; exit(1);}
@@ -469,11 +495,17 @@ int main(int argc, char **argv)
             val2[i] *= (area_f * alpha_21);
             nval2[i] = -val2[i];
           }
-          MatSetValues(M_USTAR, 1, &r1, size2+1, col2, val2, ADD_VALUES);
-          MatSetValues(M_USTAR, 1, &r2, size2+1, col2, nval2, ADD_VALUES);
+          MatSetValues(M_USTAR_FIXED, 1, &r1, size2+1, col2, val2, ADD_VALUES);
+          MatSetValues(M_USTAR_FIXED, 1, &r2, size2+1, col2, nval2, ADD_VALUES);
           bc_contribution = area_f * alpha_21 * (grad_u_star[cell_id2-1].bc_x * n2.x() + grad_u_star[cell_id2-1].bc_y * n2.y());
           bb_ustar[r1] += bc_contribution;
           bb_ustar[r2] -= bc_contribution;
+          // copy & paste for VSTAR
+          MatSetValues(M_VSTAR_FIXED, 1, &r1, size2+1, col2, val2, ADD_VALUES);
+          MatSetValues(M_VSTAR_FIXED, 1, &r2, size2+1, col2, nval2, ADD_VALUES);
+          bc_contribution = area_f * alpha_21 * (grad_v_star[cell_id2-1].bc_x * n2.x() + grad_v_star[cell_id2-1].bc_y * n2.y());
+          bb_vstar[r1] += bc_contribution;
+          bb_vstar[r2] -= bc_contribution;
         }
       }
       break;
@@ -482,13 +514,18 @@ int main(int argc, char **argv)
         std::cerr << "ERROR" << std::endl;
     }
   }
-  MatAssemblyBegin(M_USTAR, MAT_FINAL_ASSEMBLY);
-  MatAssemblyEnd(M_USTAR, MAT_FINAL_ASSEMBLY);
+  MatAssemblyBegin(M_USTAR_FIXED, MAT_FINAL_ASSEMBLY);
+  MatAssemblyEnd(M_USTAR_FIXED, MAT_FINAL_ASSEMBLY);
+
+  MatAssemblyBegin(M_VSTAR_FIXED, MAT_FINAL_ASSEMBLY);
+  MatAssemblyEnd(M_VSTAR_FIXED, MAT_FINAL_ASSEMBLY);
 
   VecRestoreArray(b_USTAR, &bb_ustar);
+  VecRestoreArray(b_VSTAR, &bb_vstar);
   std::cout << "KSP START" << std::endl;
 
   KSPSolve(ksp_USTAR, b_USTAR, u_STAR);
+  KSPSolve(ksp_VSTAR, b_VSTAR, v_STAR);
 
   FILE * ptr_File;
   ptr_File = fopen("output/U_STAR.vtu", "w");
@@ -514,6 +551,15 @@ int main(int argc, char **argv)
     out_string_stream << "          " << uu_star[i] << "\n";
   out_string_stream << "        </DataArray>" << "\n";
   VecRestoreArray(u_STAR, &uu_star);
+
+  PetscScalar * vv_star;
+  VecGetArray(v_STAR, &vv_star);
+  out_string_stream << "        <DataArray type=\"Float32\" Name=\"v_star\" format=\"ascii\">" << "\n";
+  for(unsigned int i = 0; i < cell_set.size(); i++)
+    out_string_stream << "          " << vv_star[i] << "\n";
+  out_string_stream << "        </DataArray>" << "\n";
+  VecRestoreArray(v_STAR, &vv_star);
+
   out_string_stream << "      </CellData>" << "\n";
 
   // POINT DATA
@@ -532,174 +578,10 @@ int main(int argc, char **argv)
   delete p_mesh;
 
 
-  VecDestroy(&b_USTAR); VecDestroy(&u_STAR); MatDestroy(&M_USTAR);
+  VecDestroy(&b_USTAR); VecDestroy(&u_STAR); MatDestroy(&M_USTAR_FIXED);
   KSPDestroy(&ksp_USTAR);
   PetscFinalize();
 
-/*
-  Vec       u, v, p, u_old, v_old, p_old, u_star, v_star, p_star;
-  Mat       M_USTAR, M_VSTAR;
-  KSP       ksp_ustar, ksp_vstar;
-
-  VecCreate(PETSC_COMM_SELF, &u);
-  VecSetSizes(u, PETSC_DECIDE, n_Cell);
-  VecDuplicate(u, &v);
-  VecDuplicate(u, &p);
-  VecDuplicate(u, &u_old);
-  VecDuplicate(u, &v_old);
-  VecDuplicate(u, &p_old);
-  VecDuplicate(u, &u_star);
-  VecDuplicate(u, &v_star);
-  VecDuplicate(u, &p_star);
-
-  PetscScalar *uu;
-  VecGetArray(u, &uu);
-  for (long int i = 0; i < n_Cell; i++) uu[i] = 0.0;
-  VecRestoreArray(u, &uu);
-  // Duplicate the values to 'the old u' and 'the old old u'
-  VecCopy(u, v);
-  VecCopy(u, p);
-  VecCopy(u, u_old);
-  VecCopy(u, v_old);
-  VecCopy(u, p_old);
-  VecCopy(u, u_star);
-  VecCopy(u, v_star);
-  VecCopy(u, p_star);
-
-  MatCreateSeqAIJ(PETSC_COMM_SELF, n_Cell, n_Cell, 10, NULL, &M_USTAR);  // 10 is the max possible neighbor cell numbers for a cell
-  MatSetOption(M_USTAR, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
-  KSPCreate(PETSC_COMM_WORLD, &ksp_ustar);
-  KSPSetOperators(ksp_ustar, M_USTAR, M_USTAR);
-  //KSPSetFromOptions(ksp_ustar);
-  MatCreateSeqAIJ(PETSC_COMM_SELF, n_Cell, n_Cell, 10, NULL, &M_VSTAR);  // 10 is the max possible neighbor cell numbers for a cell
-  MatSetOption(M_VSTAR, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
-  KSPCreate(PETSC_COMM_WORLD, &ksp_vstar);
-  KSPSetOperators(ksp_vstar, M_VSTAR, M_VSTAR);
-
-  for (std::map<int, std::vector<Face> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
-  {
-    int zone = it->first;
-    switch (zone)
-    {
-      case 5:
-      case 2:
-      case 3:
-      case 4:
-      {
-        for (unsigned int j = 0; j < (it->second).size(); j++)
-        {
-          Face & face = (it->second).at(j);
-          long int cell_id1 = face.cell_id1();
-          long int cell_id2 = face.cell_id2();
-
-          long int cell_id = (cell_id1 > 0) ? cell_id1 : cell_id2;
-          const FluentTriCell & cell = cell_set.at(cell_id-1);
-          double distance = 0.0;
-
-          if (zone == 5)        distance = 1.0 - cell.centroid().y();   // top
-          else if (zone == 2)   distance = 1.0 - cell.centroid().x();   // right
-          else if (zone == 3)   distance = cell.centroid().y();         // bottom
-          else                  distance = cell.centroid().x();         // left
-
-          PetscInt row = cell_id - 1;
-          PetscInt col[1]; col[0] = row;
-          double val[1];
-          val[0] = face.area() / distance;
-          MatSetValues(M_KSP, 1, &row, 1, col, val, ADD_VALUES);
-        }
-      }
-      break;
-
-      case 7:
-      {
-        for (unsigned int j = 0; j < (it->second).size(); j++)
-        {
-          Face & face = (it->second).at(j);
-          long int cell_id1 = face.cell_id1();
-          long int cell_id2 = face.cell_id2();
-
-          const FluentTriCell & cell_1 = cell_set.at(cell_id1-1);
-          const FluentTriCell & cell_2 = cell_set.at(cell_id2-1);
-          double v1 = cell_1.volume();
-          double v2 = cell_2.volume();
-          const Point & ct1 = cell_1.centroid();
-          const Point & ct2 = cell_2.centroid();
-          Vec3d ct_to_ct = ct2 - ct1;
-          double distance = ct_to_ct.norm();
-          Vec3d n1 = ct_to_ct.unitVector();
-
-          Vec3d face_normal = face.faceNormal();
-          Vec3d nf = face_normal.unitVector();
-          Vec3d n2 = nf - n1;
-
-          double area_f = face.area();
-          double alpha_12 = v2 / (v1 + v2);
-          double alpha_21 = 1.0 - alpha_12;
-          // cell 1
-          PetscInt r1 = cell_id1 - 1; PetscInt r2 = cell_id2 - 1;
-          PetscInt col[1];
-          double val[1], nval[1];
-
-          col[0] = r1; val[0] = area_f / distance; nval[0] = -val[0];
-          MatSetValues(M_KSP, 1, &r1, 1, col, val, ADD_VALUES);   // cell 1 diag
-          MatSetValues(M_KSP, 1, &r2, 1, col, nval, ADD_VALUES);  // cell 2 off-diag
-          col[0] = r2;
-          MatSetValues(M_KSP, 1, &r1, 1, col, nval, ADD_VALUES);  // cell 1 off-diag
-          MatSetValues(M_KSP, 1, &r2, 1, col, val, ADD_VALUES);   // cell 2 diag
-
-          int size1 = gradT[cell_id1-1].size;
-          if (size1 > 3) {std::cerr<<"size1 > 3\n"; exit(1);}
-          PetscInt col1[size1+1]; double val1[size1+1], nval1[size1+1];
-          for (int i = 0; i < size1+1; i++)
-          {
-            col1[i] = gradT[cell_id1-1].cell_id[i]-1;
-            val1[i] = -gradT[cell_id1-1].coef_x[i] * n2.x() - gradT[cell_id1-1].coef_y[i] * n2.y();
-            val1[i] *= (area_f * alpha_12);
-            nval1[i] = -val1[i];
-          }
-          MatSetValues(M_KSP, 1, &r1, size1+1, col1, val1, ADD_VALUES); // cell 1 off-diag
-          MatSetValues(M_KSP, 1, &r2, size1+1, col1, nval1, ADD_VALUES); // cell 2 off-diag
-          int size2 = gradT[cell_id2-1].size;
-          if (size2 > 3) {std::cerr<<"size2 > 3\n"; exit(1);}
-          PetscInt col2[size2+1]; double val2[size2+1], nval2[size2+1];
-          for (int i = 0; i < size2+1; i++)
-          {
-            col2[i] = gradT[cell_id2-1].cell_id[i]-1;
-            val2[i] = -gradT[cell_id2-1].coef_x[i] * n2.x() - gradT[cell_id2-1].coef_y[i] * n2.y();
-            val2[i] *= (area_f * alpha_21);
-            nval2[i] = -val2[i];
-          }
-          MatSetValues(M_KSP, 1, &r1, size2+1, col2, val2, ADD_VALUES);
-          MatSetValues(M_KSP, 1, &r2, size2+1, col2, nval2, ADD_VALUES);
-        }
-      }
-      break;
-
-      default:
-        std::cerr << "ERROR" << std::endl;
-    }
-  }
-  MatAssemblyBegin(M_KSP, MAT_FINAL_ASSEMBLY);
-  MatAssemblyEnd(M_KSP, MAT_FINAL_ASSEMBLY);
-
-  //MatView(M_KSP, PETSC_VIEWER_STDOUT_SELF);
-
-  std::cout << "4\n";
-  PetscScalar * rhs;
-  VecGetArray(b_KSP, &rhs);
-  for (int i = 0; i < cell_set.size(); i++)
-  {
-    const FluentTriCell & cell = cell_set.at(i);
-    double xx = cell.centroid().x();
-    double yy = cell.centroid().y();
-    double pi = 3.1415926;
-    double qq = 2.0 * pi * pi * sin(pi * xx) * sin(pi * yy);
-    rhs[i] = qq * cell.volume();
-  }
-  VecRestoreArray(b_KSP, &rhs);
-
-  KSPSolve(ksp, b_KSP, T_KSP);
-*/
   return 0;
 }
 
