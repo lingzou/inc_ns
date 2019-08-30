@@ -348,10 +348,12 @@ int main(int argc, char **argv)
   std::cout << "KSP START" << std::endl;
   Mat       M_USTAR_FIXED, M_VSTAR_FIXED;
   Mat       M_USTAR, M_VSTAR;
+  Mat       M_P;
   Vec       u, u_STAR, b_USTAR;
   Vec       v, v_STAR, b_VSTAR;
+  Vec       p, b_p;
   Vec       F_face_star, F_0f_star;
-  KSP       ksp_USTAR, ksp_VSTAR;
+  KSP       ksp_USTAR, ksp_VSTAR, ksp_P;
 
   std::cout << "KSP START SETUP" << std::endl;
 
@@ -363,6 +365,8 @@ int main(int argc, char **argv)
   VecDuplicate(u_STAR, &b_VSTAR);
   VecDuplicate(u_STAR, &u);
   VecDuplicate(u_STAR, &v);
+  VecDuplicate(u_STAR, &p);
+  VecDuplicate(u_STAR, &b_p);
 
   VecSet(u_STAR, 0.0);
   VecSet(v_STAR, 0.0);
@@ -370,6 +374,8 @@ int main(int argc, char **argv)
   VecSet(b_VSTAR, 0.0);
   VecSet(u, 0.0);
   VecSet(v, 0.0);
+  VecSet(p, 0.0);
+  VecSet(b_p, 0.0);
 
   VecCreate(PETSC_COMM_SELF, &F_face_star);
   VecSetSizes(F_face_star, PETSC_DECIDE, n_Face);
@@ -389,6 +395,8 @@ int main(int argc, char **argv)
   //KSPCreate(PETSC_COMM_WORLD, &ksp_VSTAR);
   //KSPSetOperators(ksp_VSTAR, M_VSTAR, M_VSTAR);
   //KSPSetFromOptions(ksp_VSTAR);
+  MatCreateSeqAIJ(PETSC_COMM_SELF, n_Cell, n_Cell, 10, NULL, &M_P);  // 10 is the max possible neighbor cell numbers for a cell
+  MatSetOption(M_P, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
 
   std::cout << "KSP END SETUP" << std::endl;
 
@@ -538,6 +546,15 @@ int main(int argc, char **argv)
     }
   }
 
+  MatAssemblyBegin(M_USTAR_FIXED, MAT_FINAL_ASSEMBLY);
+  MatAssemblyEnd(M_USTAR_FIXED, MAT_FINAL_ASSEMBLY);
+
+  MatAssemblyBegin(M_VSTAR_FIXED, MAT_FINAL_ASSEMBLY);
+  MatAssemblyEnd(M_VSTAR_FIXED, MAT_FINAL_ASSEMBLY);
+
+  MatDuplicate(M_VSTAR_FIXED, MAT_COPY_VALUES, &M_P);
+  MatScale(M_P, -1.0);
+
   // Time derivative term
   for(std::vector<FluentTriCell>::iterator it = cell_set.begin(); it != cell_set.end(); ++it)
   {
@@ -577,6 +594,9 @@ int main(int argc, char **argv)
   KSPCreate(PETSC_COMM_WORLD, &ksp_VSTAR);
   KSPSetOperators(ksp_VSTAR, M_VSTAR, M_VSTAR);
   KSPSetFromOptions(ksp_VSTAR);
+  KSPCreate(PETSC_COMM_WORLD, &ksp_P);
+  KSPSetOperators(ksp_P, M_P, M_P);
+  KSPSetFromOptions(ksp_P);
 
   // Advection terms
   PetscScalar * ff;
@@ -663,7 +683,13 @@ int main(int argc, char **argv)
 
   // Update "mass velocity" flux F_0f_star
   PetscScalar * f0f;
+  PetscScalar * uu_star;
+  PetscScalar * vv_star;
+  PetscScalar * bb_p;
   VecGetArray(F_0f_star, &f0f);
+  VecGetArray(u_STAR, &uu_star);
+  VecGetArray(v_STAR, &vv_star);
+  VecGetArray(b_p, &bb_p);
   for (std::map<int, std::vector<Face> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
   {
     int zone = it->first;
@@ -683,33 +709,23 @@ int main(int argc, char **argv)
         for (unsigned int j = 0; j < (it->second).size(); j++)
         {
           Face & face = (it->second).at(j);
-          long int face_id = face.id();
+          double r = face.distance_ratio();
+
           long int cell_id1 = face.cell_id1();
           long int cell_id2 = face.cell_id2();
 
-          const FluentTriCell & cell_1 = cell_set.at(cell_id1-1);
-          const FluentTriCell & cell_2 = cell_set.at(cell_id2-1);
-          //double v1 = cell_1.volume();
-          //double v2 = cell_2.volume();
-          const Point & ct1 = cell_1.centroid();
-          const Point & ct2 = cell_2.centroid();
-          const Point pt1 = node_set.at(face.node_id1()-1).point();
-          const Point pt2 = node_set.at(face.node_id2()-1).point();
-
-          double d1 = p_mesh->node_to_face_distance(ct1, pt1, pt2);
-          double d2 = p_mesh->node_to_face_distance(ct2, pt1, pt2);
-          //Vec3d ct_to_ct = ct2 - ct1;
-          //double distance = ct_to_ct.norm();
-          //Vec3d n1 = ct_to_ct.unitVector();
+          double u_face = uu_star[cell_id1-1] * (1.0 - r) + uu_star[cell_id2-1] * r;
+          double v_face = vv_star[cell_id1-1] * (1.0 - r) + vv_star[cell_id2-1] * r;
 
           Vec3d face_normal = face.faceNormal();
-          //Vec3d nf = face_normal.unitVector();
-          //Vec3d n2 = nf - n1;
 
-          //double area_f = face.area();
-          //double alpha_12 = v2 / (v1 + v2);
-          //double alpha_21 = 1.0 - alpha_12;
-          // cell 1
+          double val = u_face * face_normal.x() + v_face * face_normal.y();
+          f0f[face.id()-1] = val;
+          bb_p[cell_id1-1] += val;
+          bb_p[cell_id2-1] -= val;
+
+          //std::cout << "j = " << j << " " << face.distance_ratio() << std::endl;
+          //std::cout << "j = " << j << " " << face.area() << std::endl;
         }
       }
       break;
@@ -717,8 +733,19 @@ int main(int argc, char **argv)
       default:
         std::cerr << "ERROR" << std::endl;
     }
+
+    // anchor point
+    bb_p[0] = 0.0;
   }
   VecRestoreArray(F_0f_star, &f0f);
+  VecRestoreArray(u_STAR, &uu_star);
+  VecRestoreArray(v_STAR, &vv_star);
+  VecRestoreArray(b_p, &bb_p);
+
+  PetscInt row[1];
+  row[0] = 0;
+  MatZeroRows(M_P, 1, row, 1.0, PETSC_NULL, PETSC_NULL);
+  KSPSolve(ksp_P, b_p, p);
 
   FILE * ptr_File;
   ptr_File = fopen("output/U_STAR.vtu", "w");
@@ -737,7 +764,7 @@ int main(int argc, char **argv)
     out_string_stream << "          " << cell_set[i].volume() << "\n";
   out_string_stream << "        </DataArray>" << "\n";
 
-  PetscScalar * uu_star;
+  //PetscScalar * uu_star;
   VecGetArray(u_STAR, &uu_star);
   out_string_stream << "        <DataArray type=\"Float32\" Name=\"u_star\" format=\"ascii\">" << "\n";
   for(unsigned int i = 0; i < cell_set.size(); i++)
@@ -745,13 +772,21 @@ int main(int argc, char **argv)
   out_string_stream << "        </DataArray>" << "\n";
   VecRestoreArray(u_STAR, &uu_star);
 
-  PetscScalar * vv_star;
+  //PetscScalar * vv_star;
   VecGetArray(v_STAR, &vv_star);
   out_string_stream << "        <DataArray type=\"Float32\" Name=\"v_star\" format=\"ascii\">" << "\n";
   for(unsigned int i = 0; i < cell_set.size(); i++)
     out_string_stream << "          " << vv_star[i] << "\n";
   out_string_stream << "        </DataArray>" << "\n";
   VecRestoreArray(v_STAR, &vv_star);
+
+  PetscScalar * pp;
+  VecGetArray(p, &pp);
+  out_string_stream << "        <DataArray type=\"Float32\" Name=\"pressure\" format=\"ascii\">" << "\n";
+  for(unsigned int i = 0; i < cell_set.size(); i++)
+    out_string_stream << "          " << pp[i] << "\n";
+  out_string_stream << "        </DataArray>" << "\n";
+  VecRestoreArray(p, &pp);
 
   out_string_stream << "      </CellData>" << "\n";
 
@@ -773,7 +808,8 @@ int main(int argc, char **argv)
 
   VecDestroy(&b_USTAR); VecDestroy(&u_STAR); VecDestroy(&u); MatDestroy(&M_USTAR_FIXED); MatDestroy(&M_USTAR);
   VecDestroy(&b_VSTAR); VecDestroy(&v_STAR); VecDestroy(&v); MatDestroy(&M_VSTAR_FIXED); MatDestroy(&M_VSTAR);
-  KSPDestroy(&ksp_USTAR); KSPDestroy(&ksp_VSTAR);
+  VecDestroy(&p); VecDestroy(&b_p); MatDestroy(&M_P);
+  KSPDestroy(&ksp_USTAR); KSPDestroy(&ksp_VSTAR); KSPDestroy(&ksp_P);
 
   VecDestroy(&F_face_star);
 
