@@ -4,7 +4,8 @@
 "./inc_exec"
 
 # do diff for each case
-temp=$(diff output/FluentTwoDMesh.vtu expected/FluentTwoDMesh.vtu)
+#temp=$(diff output/FluentTwoDMesh.vtu expected/FluentTwoDMesh.vtu)
+temp=$(diff output/U_STAR.vtu expected/U_STAR.vtu)
 error=$?
 if [ $error -eq 0 ]
 then
