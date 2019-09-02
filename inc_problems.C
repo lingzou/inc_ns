@@ -92,6 +92,8 @@ void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Mat M_UST
 
 void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec F_0f_star, Vec b_p)
 {
+  // zero out b_p first
+  VecSet(b_p, 0.0);
   // Update "mass velocity" flux F_0f_star
   PetscScalar * f0f;
   PetscScalar * uu_star;
@@ -114,6 +116,12 @@ void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec 
       case 4:
       {
         // Nothing to do, F_face on all boundaries are zero
+        /*
+        for (unsigned int j = 0; j < (it->second).size(); j++)
+        {
+          Face & face = (it->second).at(j);
+          f0f[face.id()] = 0.0;
+        }*/
       }
       break;
 
@@ -134,8 +142,10 @@ void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec 
 
           double val = u_face * face_normal.x() + v_face * face_normal.y();
           f0f[face.id()] = val;
-          bb_p[cell_id1-1] += val;
-          bb_p[cell_id2-1] -= val;
+
+          double DT = 0.01;
+          bb_p[cell_id1-1] += val / DT;
+          bb_p[cell_id2-1] -= val / DT;
 
           //std::cout << "j = " << j << " " << face.distance_ratio() << std::endl;
           //std::cout << "j = " << j << " " << face.area() << std::endl;
