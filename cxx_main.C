@@ -1,33 +1,28 @@
 #include <iostream>
 #include <petscsnes.h>
 
+#include "inc_problems.h"
 #include "FluentTwoDMesh.h"
 
-PetscErrorCode SNESFormFunction(SNES, Vec, Vec, void *);
+//PetscErrorCode SNESFormFunction(SNES, Vec, Vec, void *);
 
-struct GRAD
+void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Mat M_USTAR, Mat M_VSTAR);
+void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec F_0f_star, Vec b_p);
+void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Vec p, GRAD * grad_u_star);
+
+struct PETSC_APPCTX
 {
-  int size;
-  long int cell_id[4];
-  double coef_x[4], coef_y[4];
-  double bc_x, bc_y;
-  GRAD()
-  {
-    size = 0;
-    cell_id[0] = -1; cell_id[1] = -1; cell_id[2] = -1; cell_id[3] = -1;
-    coef_x[0] = 0.0; coef_x[1] = 0.0; coef_x[2] = 0.0; coef_x[3] = 0.0;
-    coef_y[0] = 0.0; coef_y[1] = 0.0; coef_y[2] = 0.0; coef_y[3] = 0.0;
-    bc_x = 0.0; bc_y = 0.0;
-  }
-  void addCoef(int loc, long int id, double x_val, double y_val)
-  {
-    cell_id[loc] = id;
-    coef_x[loc] += x_val;
-    coef_y[loc] += y_val;
-  }
-  void addBCContribution(double x_val, double y_val) { bc_x += x_val; bc_y += y_val; }
+  FluentTwoDMesh * p_mesh;
+
+  void FreeWorkSpace();
 };
 
+void PETSC_APPCTX::FreeWorkSpace()
+{
+  if (p_mesh != NULL)
+    delete p_mesh;
+}
+/*
 struct PETSC_APPCTX
 {
   Vec T_cell, res;
@@ -235,19 +230,21 @@ PetscErrorCode SNESFormFunction(SNES snes, Vec u, Vec f, void * appCtx)
   VecRestoreArray(f, &res);
 
   return 0;
-};
+};*/
 
 int main(int argc, char **argv)
 {
   PetscInitialize(&argc, &argv, (char *)0, PETSC_NULL);
 
-  FluentTwoDMesh * p_mesh = new FluentTwoDMesh();
-  p_mesh->createMeshFromFile("cavity.msh", false, true);
-  std::cout << "# of faces: " << p_mesh->n_Faces() << std::endl;
+  PETSC_APPCTX app;
 
-  const std::vector<Node> & node_set = p_mesh->getNodeSet();
-  std::map<int, std::vector<Face> > & face_zone_map = p_mesh->getFaceZoneMap();
-  std::vector<FluentTriCell> & cell_set = p_mesh->getCellSet();
+  app.p_mesh = new FluentTwoDMesh();
+  app.p_mesh->createMeshFromFile("cavity.msh", false, true);
+  std::cout << "# of faces: " << app.p_mesh->n_Faces() << std::endl;
+
+  const std::vector<Node> & node_set = app.p_mesh->getNodeSet();
+  std::map<int, std::vector<Face> > & face_zone_map = app.p_mesh->getFaceZoneMap();
+  std::vector<FluentTriCell> & cell_set = app.p_mesh->getCellSet();
 
   std::cout << "Number of nodes = " << node_set.size() << std::endl;
   std::cout << "Number of cells = " << cell_set.size() << std::endl;
@@ -261,8 +258,8 @@ int main(int argc, char **argv)
     std::cout << "   number of faces = " << faces.size() << std::endl;
   }
 
-  long int n_Cell = p_mesh->n_Cells();
-  long int n_Face = p_mesh->n_Faces();
+  long int n_Cell = app.p_mesh->n_Cells();
+  long int n_Face = app.p_mesh->n_Faces();
 
 
   // --->
@@ -387,14 +384,11 @@ int main(int argc, char **argv)
   MatCreateSeqAIJ(PETSC_COMM_SELF, n_Cell, n_Cell, 10, NULL, &M_USTAR_FIXED);  // 10 is the max possible neighbor cell numbers for a cell
   MatSetOption(M_USTAR_FIXED, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
   KSPCreate(PETSC_COMM_WORLD, &ksp_USTAR);
-  //KSPSetOperators(ksp_USTAR, M_USTAR, M_USTAR);
-  //KSPSetFromOptions(ksp_USTAR);
 
   MatCreateSeqAIJ(PETSC_COMM_SELF, n_Cell, n_Cell, 10, NULL, &M_VSTAR_FIXED);  // 10 is the max possible neighbor cell numbers for a cell
   MatSetOption(M_VSTAR_FIXED, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
   KSPCreate(PETSC_COMM_WORLD, &ksp_VSTAR);
-  //KSPSetOperators(ksp_VSTAR, M_VSTAR, M_VSTAR);
-  //KSPSetFromOptions(ksp_VSTAR);
+
   MatCreateSeqAIJ(PETSC_COMM_SELF, n_Cell, n_Cell, 10, NULL, &M_P);  // 10 is the max possible neighbor cell numbers for a cell
   MatSetOption(M_P, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
   KSPCreate(PETSC_COMM_WORLD, &ksp_P);
@@ -586,264 +580,40 @@ int main(int argc, char **argv)
   VecRestoreArray(v, &vv);
   std::cout << "KSP START" << std::endl;
 
-for (int i = 0; i < 5; i++)
-{
-  MatDuplicate(M_USTAR_FIXED, MAT_COPY_VALUES, &M_USTAR);
-  MatDuplicate(M_VSTAR_FIXED, MAT_COPY_VALUES, &M_VSTAR);
-
-  //KSPCreate(PETSC_COMM_WORLD, &ksp_USTAR);
-  KSPSetOperators(ksp_USTAR, M_USTAR, M_USTAR);
-  KSPSetFromOptions(ksp_USTAR);
-  //KSPCreate(PETSC_COMM_WORLD, &ksp_VSTAR);
-  KSPSetOperators(ksp_VSTAR, M_VSTAR, M_VSTAR);
-  KSPSetFromOptions(ksp_VSTAR);
-  //KSPCreate(PETSC_COMM_WORLD, &ksp_P);
-  KSPSetOperators(ksp_P, M_P, M_P);
-  KSPSetFromOptions(ksp_P);
-
-  // Advection terms
-  PetscScalar * ff;
-  VecGetArray(F_face_star, &ff);
-  for (std::map<int, std::vector<Face> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
+  for (int i = 0; i < 5; i++)
   {
-    int zone = it->first;
-    switch (zone)
-    {
-      case 5:
-      case 2:
-      case 3:
-      case 4:
-      {
-        // Nothing to do, F_face on all boundaries are zero
-      }
-      break;
+    MatDuplicate(M_USTAR_FIXED, MAT_COPY_VALUES, &M_USTAR);
+    MatDuplicate(M_VSTAR_FIXED, MAT_COPY_VALUES, &M_VSTAR);
 
-      case 7:
-      {
-        for (unsigned int j = 0; j < (it->second).size(); j++)
-        {
-          double GAMMA = 0.5;
+    // update advection operator to solve u_star and v_star
+    updateAdvectionOperator(app.p_mesh, F_face_star, M_USTAR, M_VSTAR);
 
-          Face & face = (it->second).at(j);
-          long int face_id = face.id();
-          long int cell_id1 = face.cell_id1();
-          long int cell_id2 = face.cell_id2();
+    KSPSetOperators(ksp_USTAR, M_USTAR, M_USTAR);
+    KSPSetFromOptions(ksp_USTAR);
+    KSPSetOperators(ksp_VSTAR, M_VSTAR, M_VSTAR);
+    KSPSetFromOptions(ksp_VSTAR);
+    KSPSolve(ksp_USTAR, b_USTAR, u_STAR);
+    KSPSolve(ksp_VSTAR, b_VSTAR, v_STAR);
 
-          const FluentTriCell & cell_1 = cell_set.at(cell_id1-1);
-          const FluentTriCell & cell_2 = cell_set.at(cell_id2-1);
-          double v1 = cell_1.volume();
-          double v2 = cell_2.volume();
-          //const Point & ct1 = cell_1.centroid();
-          //const Point & ct2 = cell_2.centroid();
-          //Vec3d ct_to_ct = ct2 - ct1;
-          //double distance = ct_to_ct.norm();
-          //Vec3d n1 = ct_to_ct.unitVector();
+    // Update "mass velocity" flux F_0f_star, after u_star and v_star are solved
+    updateMassVeclocities(app.p_mesh, u_STAR, v_STAR, F_0f_star, b_p);
 
-          //Vec3d face_normal = face.faceNormal();
-          //Vec3d nf = face_normal.unitVector();
-          //Vec3d n2 = nf - n1;
+    // Solve pressure equation
+    KSPSetOperators(ksp_P, M_P, M_P);
+    KSPSetFromOptions(ksp_P);
 
-          double area_f = face.area();
-          double alpha_12 = v2 / (v1 + v2);
-          double alpha_21 = 1.0 - alpha_12;
-          // cell 1
-          PetscInt r1 = cell_id1 - 1; PetscInt r2 = cell_id2 - 1;
-          PetscInt col[2];
-          double val[2], nval[2];
+    PetscInt row[1];
+    row[0] = 0;
+    MatZeroRows(M_P, 1, row, 1.0, PETSC_NULL, PETSC_NULL);
+    KSPSolve(ksp_P, b_p, p);
 
-          col[0] = r1; col[1] = r2;
-          val[0] = (1.0 - GAMMA) * ff[face_id] * alpha_12;
-          val[1] = (1.0 - GAMMA) * ff[face_id] * alpha_21;
-          if (ff[face_id] > 0.0)
-            val[0] += GAMMA * ff[face_id];
-          else
-            val[1] += GAMMA * ff[face_id];
-
-          nval[0] = -val[0]; nval[1] = -val[1];
-          MatSetValues(M_USTAR, 1, &r1, 2, col, val, ADD_VALUES);
-          // copy & paste for VSTAR
-          MatSetValues(M_VSTAR, 1, &r1, 2, col, val, ADD_VALUES);
-
-          MatSetValues(M_USTAR, 1, &r2, 2, col, nval, ADD_VALUES);
-          // copy & paste for VSTAR
-          MatSetValues(M_VSTAR, 1, &r2, 2, col, nval, ADD_VALUES);
-        }
-      }
-      break;
-
-      default:
-        std::cerr << "ERROR" << std::endl;
-    }
+    // update F_face_star from solved pressure
+    updateFfaceStar(app.p_mesh, F_face_star, F_0f_star, p, grad_u_star);
   }
-  VecRestoreArray(F_face_star, &ff);
-  MatAssemblyBegin(M_USTAR, MAT_FINAL_ASSEMBLY);
-  MatAssemblyEnd(M_USTAR, MAT_FINAL_ASSEMBLY);
-  MatAssemblyBegin(M_VSTAR, MAT_FINAL_ASSEMBLY);
-  MatAssemblyEnd(M_VSTAR, MAT_FINAL_ASSEMBLY);
 
-  KSPSolve(ksp_USTAR, b_USTAR, u_STAR);
-  KSPSolve(ksp_VSTAR, b_VSTAR, v_STAR);
-
-  // Update "mass velocity" flux F_0f_star
-  PetscScalar * f0f;
-  PetscScalar * uu_star;
-  PetscScalar * vv_star;
-  PetscScalar * bb_p;
-  VecGetArray(F_0f_star, &f0f);
-  VecGetArray(u_STAR, &uu_star);
-  VecGetArray(v_STAR, &vv_star);
-  VecGetArray(b_p, &bb_p);
-  for (std::map<int, std::vector<Face> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
-  {
-    int zone = it->first;
-    switch (zone)
-    {
-      case 5:
-      case 2:
-      case 3:
-      case 4:
-      {
-        // Nothing to do, F_face on all boundaries are zero
-      }
-      break;
-
-      case 7:
-      {
-        for (unsigned int j = 0; j < (it->second).size(); j++)
-        {
-          Face & face = (it->second).at(j);
-          double r = face.distance_ratio();
-
-          long int cell_id1 = face.cell_id1();
-          long int cell_id2 = face.cell_id2();
-
-          double u_face = uu_star[cell_id1-1] * (1.0 - r) + uu_star[cell_id2-1] * r;
-          double v_face = vv_star[cell_id1-1] * (1.0 - r) + vv_star[cell_id2-1] * r;
-
-          Vec3d face_normal = face.faceNormal();
-
-          double val = u_face * face_normal.x() + v_face * face_normal.y();
-          f0f[face.id()] = val;
-          bb_p[cell_id1-1] += val;
-          bb_p[cell_id2-1] -= val;
-
-          //std::cout << "j = " << j << " " << face.distance_ratio() << std::endl;
-          //std::cout << "j = " << j << " " << face.area() << std::endl;
-        }
-      }
-      break;
-
-      default:
-        std::cerr << "ERROR" << std::endl;
-    }
-
-    // anchor point
-    bb_p[0] = 0.0;
-  }
-  VecRestoreArray(F_0f_star, &f0f);
-  VecRestoreArray(u_STAR, &uu_star);
-  VecRestoreArray(v_STAR, &vv_star);
-  VecRestoreArray(b_p, &bb_p);
-
-  PetscInt row[1];
-  row[0] = 0;
-  MatZeroRows(M_P, 1, row, 1.0, PETSC_NULL, PETSC_NULL);
-  KSPSolve(ksp_P, b_p, p);
-
-  std::cout << "update F_face_star" << std::endl;
-  // update F_face_star
-  PetscScalar * pp;
-  VecGetArray(F_face_star, &ff);
-  VecGetArray(F_0f_star, &f0f);
-  VecGetArray(p, &pp);
-  std::cout << "Start loop" << std::endl;
-  for (std::map<int, std::vector<Face> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
-  {
-    int zone = it->first;
-    switch (zone)
-    {
-      case 5:
-      case 2:
-      case 3:
-      case 4:
-      {
-        // Nothing to do, F_face on all boundaries are zero
-      }
-      break;
-
-      case 7:
-      {
-        for (unsigned int j = 0; j < (it->second).size(); j++)
-        {
-          //std::cout << "Face j = " << j << std::endl;
-          Face & face = (it->second).at(j);
-          long int cell_id1 = face.cell_id1();
-          long int cell_id2 = face.cell_id2();
-
-          const FluentTriCell & cell_1 = cell_set.at(cell_id1-1);
-          const FluentTriCell & cell_2 = cell_set.at(cell_id2-1);
-          double v1 = cell_1.volume();
-          double v2 = cell_2.volume();
-          const Point & ct1 = cell_1.centroid();
-          const Point & ct2 = cell_2.centroid();
-          Vec3d ct_to_ct = ct2 - ct1;
-          double distance = ct_to_ct.norm();
-          Vec3d n1 = ct_to_ct.unitVector();
-
-          Vec3d face_normal = face.faceNormal();
-          Vec3d nf = face_normal.unitVector();
-          Vec3d n2 = nf - n1;
-
-          double area_f = face.area();
-          double alpha_12 = v2 / (v1 + v2);
-          double alpha_21 = 1.0 - alpha_12;
-
-          //std::cout << "->Cell 1" << std::endl;
-          double grad_p_dot_n2_cell1 = 0.0;
-          int size1 = grad_u_star[cell_id1-1].size;
-          if (size1 > 3) {std::cerr<<"size1 > 3\n"; exit(1);}
-          for (int i = 0; i < size1+1; i++)
-          {
-            long int cell_id_i = grad_u_star[cell_id1-1].cell_id[i]-1;
-            double pi = pp[i];
-            grad_p_dot_n2_cell1 += (grad_u_star[cell_id1-1].coef_x[i] * n2.x() + grad_u_star[cell_id1-1].coef_y[i] * n2.y()) * pi;
-          }
-          grad_p_dot_n2_cell1 *= alpha_12;
-
-          //std::cout << "->Cell 2" << std::endl;
-          double grad_p_dot_n2_cell2 = 0.0;
-          int size2 = grad_u_star[cell_id2-1].size;
-          if (size2 > 3) {std::cerr<<"size2 > 3\n"; exit(1);}
-          for (int i = 0; i < size2+1; i++)
-          {
-            long int cell_id_i = grad_u_star[cell_id1-2].cell_id[i]-1;
-            double pi = pp[i];
-            grad_p_dot_n2_cell2 += (grad_u_star[cell_id2-1].coef_x[i] * n2.x() + grad_u_star[cell_id2-1].coef_y[i] * n2.y()) * pi;
-          }
-          grad_p_dot_n2_cell2 *= alpha_21;
-
-          double pressure_correction = (pp[cell_id2-1] - pp[cell_id1-1]) / distance + grad_p_dot_n2_cell1 + grad_p_dot_n2_cell2;
-          pressure_correction *= area_f;
-
-          double DT = 0.01;
-          ff[face.id()] = f0f[face.id()] - DT * pressure_correction;
-        }
-      }
-      break;
-
-      default:
-        std::cerr << "ERROR" << std::endl;
-    }
-  }
-  std::cout << "End loop: before restore vec" << std::endl;
-  VecRestoreArray(F_face_star, &ff);
-  VecRestoreArray(F_0f_star, &f0f);
-  VecRestoreArray(p, &pp);
-  std::cout << "End loop" << std::endl;
-}
   FILE * ptr_File;
   ptr_File = fopen("output/U_STAR.vtu", "w");
-  p_mesh->writeMesh(ptr_File);
+  app.p_mesh->writeMesh(ptr_File);
   std::ostringstream out_string_stream;
   out_string_stream << "      <CellData>" << "\n";
 
@@ -895,9 +665,9 @@ for (int i = 0; i < 5; i++)
 
   fprintf(ptr_File, "%s", out_string_stream.str().c_str());
 
-  p_mesh->finishFile(ptr_File);
+  app.p_mesh->finishFile(ptr_File);
   fclose(ptr_File);
-  delete p_mesh;
+  //delete p_mesh;
 
 
   VecDestroy(&b_USTAR); VecDestroy(&u_STAR); VecDestroy(&u); MatDestroy(&M_USTAR_FIXED); MatDestroy(&M_USTAR);
@@ -906,6 +676,8 @@ for (int i = 0; i < 5; i++)
   KSPDestroy(&ksp_USTAR); KSPDestroy(&ksp_VSTAR); KSPDestroy(&ksp_P);
 
   VecDestroy(&F_face_star); VecDestroy(&F_0f_star);
+
+  app.FreeWorkSpace();
 
   PetscFinalize();
 
