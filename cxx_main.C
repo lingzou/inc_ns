@@ -591,13 +591,17 @@ int main(int argc, char **argv)
 
   MatAssemblyBegin(M_P, MAT_FINAL_ASSEMBLY);
   MatAssemblyEnd(M_P, MAT_FINAL_ASSEMBLY);
+  PetscInt row[1]; row[0] = 0; // anchor p[0] = 0.0
+  MatZeroRows(M_P, 1, row, 1.0, PETSC_NULL, PETSC_NULL);
 
   VecRestoreArray(b_USTAR, &bb_ustar);
   VecRestoreArray(b_VSTAR, &bb_vstar);
   VecRestoreArray(u, &uu);
   VecRestoreArray(v, &vv);
-  std::cout << "KSP START" << std::endl;
+  // std::cout << "KSP START" << std::endl;
 
+  // Begin of time step
+  // Perform u_star/v_star -> F_0f -> P -> F_f iteration to get a converged F_f (as well as P)
   for (int i = 0; i < 20; i++)
   {
     if (i > 0)
@@ -625,9 +629,7 @@ int main(int argc, char **argv)
     KSPSetOperators(ksp_P, M_P, M_P);
     KSPSetFromOptions(ksp_P);
 
-    PetscInt row[1];
-    row[0] = 0;
-    MatZeroRows(M_P, 1, row, 1.0, PETSC_NULL, PETSC_NULL);
+
     VecCopy(p, p_old_it);
     KSPSolve(ksp_P, b_p, p);
     VecAXPY(p_old_it, -1.0, p); // now p_old_it is p - p_old_it
@@ -653,6 +655,44 @@ int main(int argc, char **argv)
       break;
     }
   }
+  // After F_f and P are converged, solve u_star and v_star again as the final solutions for u and v
+  MatDuplicate(M_USTAR_FIXED, MAT_COPY_VALUES, &M_USTAR);
+  MatDuplicate(M_VSTAR_FIXED, MAT_COPY_VALUES, &M_VSTAR);
+  // update advection operator to solve u_star and v_star
+  updateAdvectionOperator(app.p_mesh, F_face_star, M_USTAR, M_VSTAR);
+
+  KSPSetOperators(ksp_USTAR, M_USTAR, M_USTAR);
+  KSPSetFromOptions(ksp_USTAR);
+  KSPSetOperators(ksp_VSTAR, M_VSTAR, M_VSTAR);
+  KSPSetFromOptions(ksp_VSTAR);
+  KSPSolve(ksp_USTAR, b_USTAR, u_STAR);  // now u_star is u^(n+1)
+  KSPSolve(ksp_VSTAR, b_VSTAR, v_STAR);  // now v_star is v^(n+1)
+
+  // Update rhs of velocity equations
+  //PetscScalar * bb_ustar, * bb_vstar;
+  //PetscScalar * uu, * vv;
+  PetscScalar * uu_star, * vv_star;
+  VecGetArray(b_USTAR, &bb_ustar);
+  VecGetArray(b_VSTAR, &bb_vstar);
+  VecGetArray(u, &uu);  VecGetArray(v, &vv);  VecGetArray(u_STAR, &uu_star);  VecGetArray(v_STAR, &vv_star);
+  for(std::vector<FluentTriCell>::iterator it = cell_set.begin(); it != cell_set.end(); ++it)
+  {
+    double DT = 0.01;
+    double RHO = 1.0;
+
+    PetscInt row = it->id() - 1;
+
+    bb_ustar[row] += (uu_star[row] - uu[row]) * RHO * it->volume() / DT;
+    bb_vstar[row] += (vv_star[row] - vv[row]) * RHO * it->volume() / DT;
+  }
+  VecRestoreArray(b_USTAR, &bb_ustar);
+  VecRestoreArray(b_VSTAR, &bb_vstar);
+  VecRestoreArray(u, &uu);  VecRestoreArray(v, &vv);  VecRestoreArray(u_STAR, &uu_star);  VecRestoreArray(v_STAR, &vv_star);
+
+  // update u and v from u_star and v_star
+  VecCopy(u_STAR, u);
+  VecCopy(v_STAR, v);
+  // End of time step
 
   FILE * ptr_File;
   ptr_File = fopen("output/U_STAR.vtu", "w");
@@ -671,21 +711,21 @@ int main(int argc, char **argv)
     out_string_stream << "          " << cell_set[i].volume() << "\n";
   out_string_stream << "        </DataArray>" << "\n";
 
-  PetscScalar * uu_star;
-  VecGetArray(u_STAR, &uu_star);
+  //PetscScalar * uu;
+  VecGetArray(u, &uu);
   out_string_stream << "        <DataArray type=\"Float32\" Name=\"u_star\" format=\"ascii\">" << "\n";
   for(unsigned int i = 0; i < cell_set.size(); i++)
-    out_string_stream << "          " << uu_star[i] << "\n";
+    out_string_stream << "          " << uu[i] << "\n";
   out_string_stream << "        </DataArray>" << "\n";
-  VecRestoreArray(u_STAR, &uu_star);
+  VecRestoreArray(u, &uu);
 
-  PetscScalar * vv_star;
-  VecGetArray(v_STAR, &vv_star);
+  //PetscScalar * vv;
+  VecGetArray(v, &vv);
   out_string_stream << "        <DataArray type=\"Float32\" Name=\"v_star\" format=\"ascii\">" << "\n";
   for(unsigned int i = 0; i < cell_set.size(); i++)
-    out_string_stream << "          " << vv_star[i] << "\n";
+    out_string_stream << "          " << vv[i] << "\n";
   out_string_stream << "        </DataArray>" << "\n";
-  VecRestoreArray(v_STAR, &vv_star);
+  VecRestoreArray(v, &vv);
 
   PetscScalar * pp;
   VecGetArray(p, &pp);
