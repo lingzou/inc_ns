@@ -352,6 +352,8 @@ int main(int argc, char **argv)
   Vec       F_face_star, F_0f_star, F_face_star_old_it;
   KSP       ksp_USTAR, ksp_VSTAR, ksp_P;
 
+  Vec       p_src_x, p_src_y;
+
   std::cout << "KSP START SETUP" << std::endl;
 
   VecCreate(PETSC_COMM_SELF, &u_STAR);
@@ -366,6 +368,9 @@ int main(int argc, char **argv)
   VecDuplicate(u_STAR, &b_p);
   VecDuplicate(u_STAR, &p_old_it);
 
+  VecDuplicate(u_STAR, &p_src_x);
+  VecDuplicate(u_STAR, &p_src_y);
+
   VecSet(u_STAR, 0.0);
   VecSet(v_STAR, 0.0);
   VecSet(b_USTAR, 0.0);
@@ -375,6 +380,9 @@ int main(int argc, char **argv)
   VecSet(p, 0.0);
   VecSet(b_p, 0.0);
   VecSet(p_old_it, 0.0);
+
+  VecSet(p_src_x, 0.0);
+  VecSet(p_src_y, 0.0);
 
   VecCreate(PETSC_COMM_SELF, &F_face_star);
   VecSetSizes(F_face_star, PETSC_DECIDE, n_Face);
@@ -602,6 +610,8 @@ int main(int argc, char **argv)
 
   // Begin of time step
   // Perform u_star/v_star -> F_0f -> P -> F_f iteration to get a converged F_f (as well as P)
+  for (int time_step = 0; time_step < 20; time_step++)
+  {
   for (int i = 0; i < 20; i++)
   {
     if (i > 0)
@@ -660,6 +670,71 @@ int main(int argc, char **argv)
   MatDuplicate(M_VSTAR_FIXED, MAT_COPY_VALUES, &M_VSTAR);
   // update advection operator to solve u_star and v_star
   updateAdvectionOperator(app.p_mesh, F_face_star, M_USTAR, M_VSTAR);
+  // update rhs due to pressure gradient
+  VecSet(p_src_x, 0.0); VecSet(p_src_y, 0.0);
+  PetscScalar * pp, * pp_src_x, * pp_src_y;
+  VecGetArray(p, &pp);
+  VecGetArray(p_src_x, &pp_src_x);
+  VecGetArray(p_src_y, &pp_src_y);
+  for (std::map<int, std::vector<Face> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
+  {
+    int zone = it->first;
+    //std::cout << "zone = " << zone << std::endl;
+    switch (zone)
+    {
+      case 5: // TOP
+      case 2: // RIGHT
+      case 3: // BOTTOM
+      case 4: // LEFT
+      {
+        for (unsigned int j = 0; j < (it->second).size(); j++)
+        {
+          Face & face = (it->second)[j];
+          long int cell_id1 = face.cell_id1();
+          Vec3d face_normal = face.faceNormal();
+          double p_face = pp[cell_id1-1];
+
+          pp_src_x[cell_id1-1] -= p_face * face_normal.x();
+          pp_src_y[cell_id1-1] -= p_face * face_normal.y();
+        }
+      }
+      break;
+
+      case 7:
+      {
+        for (unsigned int j = 0; j < (it->second).size(); j++)
+        {
+          Face & face = (it->second)[j];
+          long int cell_id1 = face.cell_id1();
+          long int cell_id2 = face.cell_id2();
+          double v1 = cell_set.at(cell_id1-1).volume();
+          double v2 = cell_set.at(cell_id2-1).volume();
+          Vec3d face_normal = face.faceNormal();
+
+          double alpha_12 = v2 / (v1 + v2);
+          double alpha_21 = 1.0 - alpha_12;
+          // Cell 1
+          double p_face = alpha_12 * pp[cell_id1-1] + alpha_21 * pp[cell_id2-1];
+
+          pp_src_x[cell_id1-1] -= p_face * face_normal.x();
+          pp_src_y[cell_id1-1] -= p_face * face_normal.y();
+
+          pp_src_x[cell_id2-1] += p_face * face_normal.x();
+          pp_src_y[cell_id2-1] += p_face * face_normal.y();
+        }
+      }
+      break;
+
+      default:
+        std::cerr << "ERROR" << std::endl;
+    }
+  }
+  VecRestoreArray(p_src_x, &pp_src_x);
+  VecRestoreArray(p_src_y, &pp_src_y);
+  VecRestoreArray(p, &pp);
+
+  VecAXPY(b_USTAR, 1.0, p_src_x);
+  VecAXPY(b_VSTAR, 1.0, p_src_y);
 
   KSPSetOperators(ksp_USTAR, M_USTAR, M_USTAR);
   KSPSetFromOptions(ksp_USTAR);
@@ -671,6 +746,8 @@ int main(int argc, char **argv)
   // Update rhs of velocity equations
   //PetscScalar * bb_ustar, * bb_vstar;
   //PetscScalar * uu, * vv;
+  VecAXPY(b_USTAR, -1.0, p_src_x);
+  VecAXPY(b_VSTAR, -1.0, p_src_y);
   PetscScalar * uu_star, * vv_star;
   VecGetArray(b_USTAR, &bb_ustar);
   VecGetArray(b_VSTAR, &bb_vstar);
@@ -693,6 +770,7 @@ int main(int argc, char **argv)
   VecCopy(u_STAR, u);
   VecCopy(v_STAR, v);
   // End of time step
+  }
 
   FILE * ptr_File;
   ptr_File = fopen("output/U_STAR.vtu", "w");
