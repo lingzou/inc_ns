@@ -770,10 +770,10 @@ int main(int argc, char **argv)
   VecCopy(u_STAR, u);
   VecCopy(v_STAR, v);
   // End of time step
-  }
 
+  std::string file_name = "output/output_" + std::to_string(time_step) + ".vtu";
   FILE * ptr_File;
-  ptr_File = fopen("output/U_STAR.vtu", "w");
+  ptr_File = fopen(file_name.c_str(), "w");
   app.p_mesh->writeMesh(ptr_File);
   std::ostringstream out_string_stream;
   out_string_stream << "      <CellData>" << "\n";
@@ -805,7 +805,7 @@ int main(int argc, char **argv)
   out_string_stream << "        </DataArray>" << "\n";
   VecRestoreArray(v, &vv);
 
-  PetscScalar * pp;
+  //PetscScalar * pp;
   VecGetArray(p, &pp);
   out_string_stream << "        <DataArray type=\"Float32\" Name=\"pressure\" format=\"ascii\">" << "\n";
   for(unsigned int i = 0; i < cell_set.size(); i++)
@@ -829,6 +829,7 @@ int main(int argc, char **argv)
   app.p_mesh->finishFile(ptr_File);
   fclose(ptr_File);
   //delete p_mesh;
+  }
 
 
   VecDestroy(&b_USTAR); VecDestroy(&u_STAR); VecDestroy(&u); MatDestroy(&M_USTAR_FIXED); MatDestroy(&M_USTAR);
