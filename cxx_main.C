@@ -9,6 +9,7 @@
 void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Mat M_USTAR, Mat M_VSTAR);
 void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec F_0f_star, Vec b_p);
 void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Vec p, GRAD * grad_u_star);
+void updatePressureGradientAsSource(FluentTwoDMesh * p_mesh, Vec p, Vec p_src_x, Vec p_src_y);
 
 struct PETSC_APPCTX
 {
@@ -282,11 +283,6 @@ int main(int argc, char **argv)
           Vec3d face_normal = face.faceNormal();
           double v1 = cell_set.at(cell_id1-1).volume();
 
-          //std::cout << "cell_ids = " << cell_id1 << " " << cell_id2 << std::endl;
-          //std::cout << "node_ids = " << face.node_id1() << " " << face.node_id2() << std::endl;
-          //face_normal.print();
-
-          //long int cell_id = (cell_id1 > 0) ? cell_id1 : cell_id2;
           double U_BC = 1.0;
           grad_u_star[cell_id1-1].addBCContribution(U_BC * face_normal.x() / v1, U_BC * face_normal.y() / v1);
           // V_BC = 0.0, no need to do anything
@@ -404,6 +400,7 @@ int main(int argc, char **argv)
   MatCreateSeqAIJ(PETSC_COMM_SELF, n_Cell, n_Cell, 10, NULL, &M_P);  // 10 is the max possible neighbor cell numbers for a cell
   MatSetOption(M_P, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
   KSPCreate(PETSC_COMM_WORLD, &ksp_P);
+  //KSPSetType(ksp_P, KSPCG);
 
   std::cout << "KSP END SETUP" << std::endl;
 
@@ -614,10 +611,10 @@ int main(int argc, char **argv)
   VecRestoreArray(v, &vv);
   // std::cout << "KSP START" << std::endl;
 
-  // Begin of time step
-  // Perform u_star/v_star -> F_0f -> P -> F_f iteration to get a converged F_f (as well as P)
   for (int time_step = 0; time_step < 20; time_step++)
   {
+    // Begin of time step
+    // Perform u_star/v_star -> F_0f -> P -> F_f iteration to get a converged F_f (as well as P)
   for (int i = 0; i < 20; i++)
   {
     if (i > 0)
@@ -644,24 +641,23 @@ int main(int argc, char **argv)
     // Solve pressure equation
     KSPSetOperators(ksp_P, M_P, M_P);
     KSPSetFromOptions(ksp_P);
-
-
-    VecCopy(p, p_old_it);
+    //VecCopy(p, p_old_it);
     KSPSolve(ksp_P, b_p, p);
+    /*
     VecAXPY(p_old_it, -1.0, p); // now p_old_it is p - p_old_it
     PetscScalar error_norm, error_inf;
     VecNorm(p_old_it, NORM_2, &error_norm);
     VecNorm(p_old_it, NORM_INFINITY, &error_inf);
-    //std::cout << "p error_norm = " << error_norm << std::endl;
-    //std::cout << "p error_inf = " << error_inf << std::endl;
+    std::cout << "p error_norm = " << error_norm << std::endl;
+    std::cout << "p error_inf = " << error_inf << std::endl;*/
 
     // update F_face_star from solved pressure
     VecCopy(F_face_star, F_face_star_old_it);
     updateFfaceStar(app.p_mesh, F_face_star, F_0f_star, p, grad_u_star);
     VecAXPY(F_face_star_old_it, -1.0, F_face_star); // now F_face_star_old_it is F_face_star - F_face_star_old_it
-
+    PetscScalar error_norm;
     VecNorm(F_face_star_old_it, NORM_2, &error_norm);
-    VecNorm(F_face_star_old_it, NORM_INFINITY, &error_inf);
+    //VecNorm(F_face_star_old_it, NORM_INFINITY, &error_inf);
     //std::cout << "F error_norm = " << error_norm << std::endl;
     //std::cout << "F error_inf = " << error_inf << std::endl;
 
@@ -677,68 +673,7 @@ int main(int argc, char **argv)
   // update advection operator to solve u_star and v_star
   updateAdvectionOperator(app.p_mesh, F_face_star, M_USTAR, M_VSTAR);
   // update rhs due to pressure gradient
-  VecSet(p_src_x, 0.0); VecSet(p_src_y, 0.0);
-  PetscScalar * pp, * pp_src_x, * pp_src_y;
-  VecGetArray(p, &pp);
-  VecGetArray(p_src_x, &pp_src_x);
-  VecGetArray(p_src_y, &pp_src_y);
-  for (std::map<int, std::vector<Face> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
-  {
-    int zone = it->first;
-    //std::cout << "zone = " << zone << std::endl;
-    switch (zone)
-    {
-      case 5: // TOP
-      case 2: // RIGHT
-      case 3: // BOTTOM
-      case 4: // LEFT
-      {
-        for (unsigned int j = 0; j < (it->second).size(); j++)
-        {
-          Face & face = (it->second)[j];
-          long int cell_id1 = face.cell_id1();
-          Vec3d face_normal = face.faceNormal();
-          double p_face = pp[cell_id1-1];
-
-          pp_src_x[cell_id1-1] -= p_face * face_normal.x();
-          pp_src_y[cell_id1-1] -= p_face * face_normal.y();
-        }
-      }
-      break;
-
-      case 7:
-      {
-        for (unsigned int j = 0; j < (it->second).size(); j++)
-        {
-          Face & face = (it->second)[j];
-          long int cell_id1 = face.cell_id1();
-          long int cell_id2 = face.cell_id2();
-          double v1 = cell_set.at(cell_id1-1).volume();
-          double v2 = cell_set.at(cell_id2-1).volume();
-          Vec3d face_normal = face.faceNormal();
-
-          double alpha_12 = v2 / (v1 + v2);
-          double alpha_21 = 1.0 - alpha_12;
-          // Cell 1
-          double p_face = alpha_12 * pp[cell_id1-1] + alpha_21 * pp[cell_id2-1];
-
-          pp_src_x[cell_id1-1] -= p_face * face_normal.x();
-          pp_src_y[cell_id1-1] -= p_face * face_normal.y();
-
-          pp_src_x[cell_id2-1] += p_face * face_normal.x();
-          pp_src_y[cell_id2-1] += p_face * face_normal.y();
-        }
-      }
-      break;
-
-      default:
-        std::cerr << "ERROR" << std::endl;
-    }
-  }
-  VecRestoreArray(p_src_x, &pp_src_x);
-  VecRestoreArray(p_src_y, &pp_src_y);
-  VecRestoreArray(p, &pp);
-
+  updatePressureGradientAsSource(app.p_mesh, p, p_src_x, p_src_y);
   VecAXPY(b_USTAR, 1.0, p_src_x);
   VecAXPY(b_VSTAR, 1.0, p_src_y);
 
@@ -811,7 +746,7 @@ int main(int argc, char **argv)
   out_string_stream << "        </DataArray>" << "\n";
   VecRestoreArray(v, &vv);
 
-  //PetscScalar * pp;
+  PetscScalar * pp;
   VecGetArray(p, &pp);
   out_string_stream << "        <DataArray type=\"Float32\" Name=\"pressure\" format=\"ascii\">" << "\n";
   for(unsigned int i = 0; i < cell_set.size(); i++)
@@ -844,6 +779,7 @@ int main(int argc, char **argv)
   KSPDestroy(&ksp_USTAR); KSPDestroy(&ksp_VSTAR); KSPDestroy(&ksp_P);
 
   VecDestroy(&F_face_star); VecDestroy(&F_0f_star); VecDestroy(&F_face_star_old_it);
+  VecDestroy(&p_src_x); VecDestroy(&p_src_y);
 
   app.FreeWorkSpace();
 
