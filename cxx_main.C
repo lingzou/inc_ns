@@ -419,6 +419,7 @@ int main(int argc, char **argv)
   // Diffusion terms
   for (std::map<int, std::vector<Face> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
   {
+    double VISC = 1.0;
     int zone = it->first;
     switch (zone)
     {
@@ -446,12 +447,12 @@ int main(int argc, char **argv)
           PetscInt row = cell_id - 1;
           PetscInt col[1]; col[0] = row;
           double val[1];
-          val[0] = face.area() / distance;
+          val[0] = VISC * face.area() / distance;
           MatSetValues(M_USTAR_FIXED, 1, &row, 1, col, val, ADD_VALUES);
           MatSetValues(M_VSTAR_FIXED, 1, &row, 1, col, val, ADD_VALUES);
 
           double U_BC = 1.0;
-          if (zone == 5) bb_ustar[row] += face.area() / distance * U_BC;
+          if (zone == 5) bb_ustar[row] += VISC * face.area() / distance * U_BC;
           // no rhs for v_star
         }
       }
@@ -488,20 +489,23 @@ int main(int argc, char **argv)
           PetscInt col[1];
           double val[1], nval[1];
 
-          col[0] = r1; val[0] = area_f / distance; nval[0] = -val[0];
+          col[0] = r1; val[0] = VISC * area_f / distance; nval[0] = -val[0];
           MatSetValues(M_USTAR_FIXED, 1, &r1, 1, col, val, ADD_VALUES);   // cell 1 diag
           MatSetValues(M_USTAR_FIXED, 1, &r2, 1, col, nval, ADD_VALUES);  // cell 2 off-diag
           // copy & paste for VSTAR and (-1.0)MP
           MatSetValues(M_VSTAR_FIXED, 1, &r1, 1, col, val, ADD_VALUES);   // cell 1 diag
           MatSetValues(M_VSTAR_FIXED, 1, &r2, 1, col, nval, ADD_VALUES);  // cell 2 off-diag
+          val[0] = area_f / distance; nval[0] = -val[0];
           MatSetValues(M_P, 1, &r1, 1, col, nval, ADD_VALUES);   // cell 1 diag
           MatSetValues(M_P, 1, &r2, 1, col, val, ADD_VALUES);  // cell 2 off-diag
-          col[0] = r2;
+
+          col[0] = r2; val[0] = VISC * area_f / distance; nval[0] = -val[0];
           MatSetValues(M_USTAR_FIXED, 1, &r1, 1, col, nval, ADD_VALUES);  // cell 1 off-diag
           MatSetValues(M_USTAR_FIXED, 1, &r2, 1, col, val, ADD_VALUES);   // cell 2 diag
           // copy & paste for VSTAR and (-1.0)MP
           MatSetValues(M_VSTAR_FIXED, 1, &r1, 1, col, nval, ADD_VALUES);  // cell 1 off-diag
           MatSetValues(M_VSTAR_FIXED, 1, &r2, 1, col, val, ADD_VALUES);   // cell 2 diag
+          val[0] = area_f / distance; nval[0] = -val[0];
           MatSetValues(M_P, 1, &r1, 1, col, val, ADD_VALUES);  // cell 1 off-diag
           MatSetValues(M_P, 1, &r2, 1, col, nval, ADD_VALUES);   // cell 2 diag
 
@@ -512,21 +516,22 @@ int main(int argc, char **argv)
           {
             col1[i] = grad_u_star[cell_id1-1].cell_id[i]-1;
             val1[i] = -grad_u_star[cell_id1-1].coef_x[i] * n2.x() - grad_u_star[cell_id1-1].coef_y[i] * n2.y();
-            val1[i] *= (area_f * alpha_12);
+            val1[i] *= (VISC * area_f * alpha_12);
             nval1[i] = -val1[i];
           }
           MatSetValues(M_USTAR_FIXED, 1, &r1, size1+1, col1, val1, ADD_VALUES); // cell 1 off-diag
           MatSetValues(M_USTAR_FIXED, 1, &r2, size1+1, col1, nval1, ADD_VALUES); // cell 2 off-diag
-          double bc_contribution = area_f * alpha_12 * (grad_u_star[cell_id1-1].bc_x * n2.x() + grad_u_star[cell_id1-1].bc_y * n2.y());
+          double bc_contribution = VISC * area_f * alpha_12 * (grad_u_star[cell_id1-1].bc_x * n2.x() + grad_u_star[cell_id1-1].bc_y * n2.y());
           bb_ustar[r1] += bc_contribution;
           bb_ustar[r2] -= bc_contribution;
           // copy & paste for VSTAR
           MatSetValues(M_VSTAR_FIXED, 1, &r1, size1+1, col1, val1, ADD_VALUES); // cell 1 off-diag
           MatSetValues(M_VSTAR_FIXED, 1, &r2, size1+1, col1, nval1, ADD_VALUES); // cell 2 off-diag
-          bc_contribution = area_f * alpha_12 * (grad_v_star[cell_id1-1].bc_x * n2.x() + grad_v_star[cell_id1-1].bc_y * n2.y());
+          bc_contribution = VISC * area_f * alpha_12 * (grad_v_star[cell_id1-1].bc_x * n2.x() + grad_v_star[cell_id1-1].bc_y * n2.y());
           bb_vstar[r1] += bc_contribution;
           bb_vstar[r2] -= bc_contribution;
           // (-1.0) MP
+          for (int i = 0; i < size1+1; i++) { val1[i] /= VISC; nval1[i] = -val1[i]; }
           MatSetValues(M_P, 1, &r1, size1+1, col1, nval1, ADD_VALUES); // cell 1 off-diag
           MatSetValues(M_P, 1, &r2, size1+1, col1, val1, ADD_VALUES); // cell 2 off-diag
 
@@ -537,21 +542,22 @@ int main(int argc, char **argv)
           {
             col2[i] = grad_u_star[cell_id2-1].cell_id[i]-1;
             val2[i] = -grad_u_star[cell_id2-1].coef_x[i] * n2.x() - grad_u_star[cell_id2-1].coef_y[i] * n2.y();
-            val2[i] *= (area_f * alpha_21);
+            val2[i] *= (VISC * area_f * alpha_21);
             nval2[i] = -val2[i];
           }
           MatSetValues(M_USTAR_FIXED, 1, &r1, size2+1, col2, val2, ADD_VALUES);
           MatSetValues(M_USTAR_FIXED, 1, &r2, size2+1, col2, nval2, ADD_VALUES);
-          bc_contribution = area_f * alpha_21 * (grad_u_star[cell_id2-1].bc_x * n2.x() + grad_u_star[cell_id2-1].bc_y * n2.y());
+          bc_contribution = VISC * area_f * alpha_21 * (grad_u_star[cell_id2-1].bc_x * n2.x() + grad_u_star[cell_id2-1].bc_y * n2.y());
           bb_ustar[r1] += bc_contribution;
           bb_ustar[r2] -= bc_contribution;
           // copy & paste for VSTAR
           MatSetValues(M_VSTAR_FIXED, 1, &r1, size2+1, col2, val2, ADD_VALUES);
           MatSetValues(M_VSTAR_FIXED, 1, &r2, size2+1, col2, nval2, ADD_VALUES);
-          bc_contribution = area_f * alpha_21 * (grad_v_star[cell_id2-1].bc_x * n2.x() + grad_v_star[cell_id2-1].bc_y * n2.y());
+          bc_contribution = VISC * area_f * alpha_21 * (grad_v_star[cell_id2-1].bc_x * n2.x() + grad_v_star[cell_id2-1].bc_y * n2.y());
           bb_vstar[r1] += bc_contribution;
           bb_vstar[r2] -= bc_contribution;
           // (-1.0) MP
+          for (int i = 0; i < size2+1; i++) { val2[i] /= VISC; nval2[i] = -val2[i]; }
           MatSetValues(M_P, 1, &r1, size2+1, col2, nval2, ADD_VALUES);
           MatSetValues(M_P, 1, &r2, size2+1, col2, val2, ADD_VALUES);
         }
