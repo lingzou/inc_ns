@@ -262,6 +262,12 @@ int main(int argc, char **argv)
   long int n_Cell = app.p_mesh->n_Cells();
   long int n_Face = app.p_mesh->n_Faces();
 
+  /* Setup B.C. */
+  std::map<int, double> U_BC;
+  std::map<int, double> V_BC;
+  U_BC[2] = 0.0; U_BC[3] = 0.0; U_BC[4] = 0.0; U_BC[5] = 1.0;
+  V_BC[2] = 0.0; V_BC[3] = 0.0; V_BC[4] = 0.0; V_BC[5] = 0.0;
+  /* End of B.C. setting */
 
   // --->
   std::cout << "GRAD START" << std::endl;
@@ -273,27 +279,23 @@ int main(int argc, char **argv)
     std::cout << "zone = " << zone << std::endl;
     switch (zone)
     {
+      case 2: // RIGHT
+      case 3: // BOTTOM
+      case 4: // LEFT
       case 5: // TOP
       {
         for (unsigned int j = 0; j < (it->second).size(); j++)
         {
           Face & face = (it->second)[j];
           long int cell_id1 = face.cell_id1();
-          //long int cell_id2 = face.cell_id2();
           Vec3d face_normal = face.faceNormal();
           double v1 = cell_set.at(cell_id1-1).volume();
 
-          double U_BC = 1.0;
-          grad_u_star[cell_id1-1].addBCContribution(U_BC * face_normal.x() / v1, U_BC * face_normal.y() / v1);
-          // V_BC = 0.0, no need to do anything
+          grad_u_star[cell_id1-1].addBCContribution(U_BC[zone] * face_normal.x() / v1, U_BC[zone] * face_normal.y() / v1);
+          grad_v_star[cell_id1-1].addBCContribution(V_BC[zone] * face_normal.x() / v1, V_BC[zone] * face_normal.y() / v1);
         }
       }
       break;
-
-      case 2: // RIGHT
-      case 3: // BOTTOM
-      case 4: // LEFT
-        break;
 
       case 7:
       {
@@ -391,14 +393,19 @@ int main(int argc, char **argv)
 
   MatCreateSeqAIJ(PETSC_COMM_SELF, n_Cell, n_Cell, 10, NULL, &M_USTAR_FIXED);  // 10 is the max possible neighbor cell numbers for a cell
   MatSetOption(M_USTAR_FIXED, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
-  KSPCreate(PETSC_COMM_WORLD, &ksp_USTAR);
+  MatCreateSeqAIJ(PETSC_COMM_SELF, n_Cell, n_Cell, 10, NULL, &M_USTAR);  // 10 is the max possible neighbor cell numbers for a cell
+  MatSetOption(M_USTAR, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
 
   MatCreateSeqAIJ(PETSC_COMM_SELF, n_Cell, n_Cell, 10, NULL, &M_VSTAR_FIXED);  // 10 is the max possible neighbor cell numbers for a cell
   MatSetOption(M_VSTAR_FIXED, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
-  KSPCreate(PETSC_COMM_WORLD, &ksp_VSTAR);
+  MatCreateSeqAIJ(PETSC_COMM_SELF, n_Cell, n_Cell, 10, NULL, &M_VSTAR);  // 10 is the max possible neighbor cell numbers for a cell
+  MatSetOption(M_VSTAR, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
 
   MatCreateSeqAIJ(PETSC_COMM_SELF, n_Cell, n_Cell, 10, NULL, &M_P);  // 10 is the max possible neighbor cell numbers for a cell
   MatSetOption(M_P, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
+
+  KSPCreate(PETSC_COMM_WORLD, &ksp_USTAR);
+  KSPCreate(PETSC_COMM_WORLD, &ksp_VSTAR);
   KSPCreate(PETSC_COMM_WORLD, &ksp_P);
   //KSPSetType(ksp_P, KSPCG);
 
@@ -434,12 +441,14 @@ int main(int argc, char **argv)
 
           long int cell_id = (cell_id1 > 0) ? cell_id1 : cell_id2;
           const FluentTriCell & cell = cell_set.at(cell_id-1);
-          double distance = 0.0;
 
-          if (zone == 5)        distance = 1.0 - cell.centroid().y();   // top
-          else if (zone == 2)   distance = 1.0 - cell.centroid().x();   // right
-          else if (zone == 3)   distance = cell.centroid().y();         // bottom
-          else                  distance = cell.centroid().x();         // left
+          long int node_id1 = face.node_id1();
+          long int node_id2 = face.node_id2();
+
+          Point pt0 = cell.centroid();
+          Point pt1 = node_set.at(node_id1-1).point();
+          Point pt2 = node_set.at(node_id2-1).point();
+          double distance = app.p_mesh->node_to_face_distance(pt0, pt1, pt2);
 
           PetscInt row = cell_id - 1;
           PetscInt col[1]; col[0] = row;
@@ -448,9 +457,9 @@ int main(int argc, char **argv)
           MatSetValues(M_USTAR_FIXED, 1, &row, 1, col, val, ADD_VALUES);
           MatSetValues(M_VSTAR_FIXED, 1, &row, 1, col, val, ADD_VALUES);
 
-          double U_BC = 1.0;
-          if (zone == 5) bb_ustar[row] += VISC * face.area() / distance * U_BC;
-          // no rhs for v_star
+          /* Not correct if face is tilted */
+          bb_ustar[row] += VISC * face.area() / distance * U_BC[zone];
+          bb_vstar[row] += VISC * face.area() / distance * V_BC[zone];
         }
       }
       break;
@@ -615,161 +624,162 @@ int main(int argc, char **argv)
   {
     // Begin of time step
     // Perform u_star/v_star -> F_0f -> P -> F_f iteration to get a converged F_f (as well as P)
-  for (int i = 0; i < 20; i++)
-  {
-    if (i > 0)
+    for (int i = 0; i < 20; i++)
     {
-      MatZeroEntries(M_USTAR);
-      MatZeroEntries(M_VSTAR);
+      /*
+      if (i > 0)
+      {
+        MatZeroEntries(M_USTAR);
+        MatZeroEntries(M_VSTAR);
+      }*/
+      MatDuplicate(M_USTAR_FIXED, MAT_COPY_VALUES, &M_USTAR);
+      MatDuplicate(M_VSTAR_FIXED, MAT_COPY_VALUES, &M_VSTAR);
+
+      // update advection operator to solve u_star and v_star
+      updateAdvectionOperator(app.p_mesh, F_face_star, M_USTAR, M_VSTAR);
+
+      KSPSetOperators(ksp_USTAR, M_USTAR, M_USTAR);
+      KSPSetFromOptions(ksp_USTAR);
+      KSPSetOperators(ksp_VSTAR, M_VSTAR, M_VSTAR);
+      KSPSetFromOptions(ksp_VSTAR);
+      KSPSolve(ksp_USTAR, b_USTAR, u_STAR);
+      KSPSolve(ksp_VSTAR, b_VSTAR, v_STAR);
+
+      // Update "mass velocity" flux F_0f_star, after u_star and v_star are solved
+      updateMassVeclocities(app.p_mesh, u_STAR, v_STAR, F_0f_star, b_p);
+
+      // Solve pressure equation
+      KSPSetOperators(ksp_P, M_P, M_P);
+      KSPSetFromOptions(ksp_P);
+      //VecCopy(p, p_old_it);
+      KSPSolve(ksp_P, b_p, p);
+      /*
+      VecAXPY(p_old_it, -1.0, p); // now p_old_it is p - p_old_it
+      PetscScalar error_norm, error_inf;
+      VecNorm(p_old_it, NORM_2, &error_norm);
+      VecNorm(p_old_it, NORM_INFINITY, &error_inf);
+      std::cout << "p error_norm = " << error_norm << std::endl;
+      std::cout << "p error_inf = " << error_inf << std::endl;*/
+
+      // update F_face_star from solved pressure
+      VecCopy(F_face_star, F_face_star_old_it);
+      updateFfaceStar(app.p_mesh, F_face_star, F_0f_star, p, grad_u_star);
+      VecAXPY(F_face_star_old_it, -1.0, F_face_star); // now F_face_star_old_it is F_face_star - F_face_star_old_it
+      PetscScalar error_norm;
+      VecNorm(F_face_star_old_it, NORM_2, &error_norm);
+      //VecNorm(F_face_star_old_it, NORM_INFINITY, &error_inf);
+      //std::cout << "F error_norm = " << error_norm << std::endl;
+      //std::cout << "F error_inf = " << error_inf << std::endl;
+
+      if (error_norm < 1.0e-9)
+      {
+        std::cout << "it = " << i << ": L2 error = " << error_norm << std::endl;
+        break;
+      }
     }
+    // After F_f and P are converged, solve u_star and v_star again as the final solutions for u and v
     MatDuplicate(M_USTAR_FIXED, MAT_COPY_VALUES, &M_USTAR);
     MatDuplicate(M_VSTAR_FIXED, MAT_COPY_VALUES, &M_VSTAR);
-
     // update advection operator to solve u_star and v_star
     updateAdvectionOperator(app.p_mesh, F_face_star, M_USTAR, M_VSTAR);
+    // update rhs due to pressure gradient
+    updatePressureGradientAsSource(app.p_mesh, p, p_src_x, p_src_y);
+    VecAXPY(b_USTAR, 1.0, p_src_x);
+    VecAXPY(b_VSTAR, 1.0, p_src_y);
 
     KSPSetOperators(ksp_USTAR, M_USTAR, M_USTAR);
     KSPSetFromOptions(ksp_USTAR);
     KSPSetOperators(ksp_VSTAR, M_VSTAR, M_VSTAR);
     KSPSetFromOptions(ksp_VSTAR);
-    KSPSolve(ksp_USTAR, b_USTAR, u_STAR);
-    KSPSolve(ksp_VSTAR, b_VSTAR, v_STAR);
+    KSPSolve(ksp_USTAR, b_USTAR, u_STAR);  // now u_star is u^(n+1)
+    KSPSolve(ksp_VSTAR, b_VSTAR, v_STAR);  // now v_star is v^(n+1)
 
-    // Update "mass velocity" flux F_0f_star, after u_star and v_star are solved
-    updateMassVeclocities(app.p_mesh, u_STAR, v_STAR, F_0f_star, b_p);
-
-    // Solve pressure equation
-    KSPSetOperators(ksp_P, M_P, M_P);
-    KSPSetFromOptions(ksp_P);
-    //VecCopy(p, p_old_it);
-    KSPSolve(ksp_P, b_p, p);
-    /*
-    VecAXPY(p_old_it, -1.0, p); // now p_old_it is p - p_old_it
-    PetscScalar error_norm, error_inf;
-    VecNorm(p_old_it, NORM_2, &error_norm);
-    VecNorm(p_old_it, NORM_INFINITY, &error_inf);
-    std::cout << "p error_norm = " << error_norm << std::endl;
-    std::cout << "p error_inf = " << error_inf << std::endl;*/
-
-    // update F_face_star from solved pressure
-    VecCopy(F_face_star, F_face_star_old_it);
-    updateFfaceStar(app.p_mesh, F_face_star, F_0f_star, p, grad_u_star);
-    VecAXPY(F_face_star_old_it, -1.0, F_face_star); // now F_face_star_old_it is F_face_star - F_face_star_old_it
-    PetscScalar error_norm;
-    VecNorm(F_face_star_old_it, NORM_2, &error_norm);
-    //VecNorm(F_face_star_old_it, NORM_INFINITY, &error_inf);
-    //std::cout << "F error_norm = " << error_norm << std::endl;
-    //std::cout << "F error_inf = " << error_inf << std::endl;
-
-    if (error_norm < 1.0e-9)
+    // Update rhs of velocity equations
+    //PetscScalar * bb_ustar, * bb_vstar;
+    //PetscScalar * uu, * vv;
+    VecAXPY(b_USTAR, -1.0, p_src_x);
+    VecAXPY(b_VSTAR, -1.0, p_src_y);
+    PetscScalar * uu_star, * vv_star;
+    VecGetArray(b_USTAR, &bb_ustar);
+    VecGetArray(b_VSTAR, &bb_vstar);
+    VecGetArray(u, &uu);  VecGetArray(v, &vv);  VecGetArray(u_STAR, &uu_star);  VecGetArray(v_STAR, &vv_star);
+    for(std::vector<FluentTriCell>::iterator it = cell_set.begin(); it != cell_set.end(); ++it)
     {
-      std::cout << "it = " << i << ": L2 error = " << error_norm << std::endl;
-      break;
+      double DT = 0.01;
+      double RHO = 1.0;
+
+      PetscInt row = it->id() - 1;
+
+      bb_ustar[row] += (uu_star[row] - uu[row]) * RHO * it->volume() / DT;
+      bb_vstar[row] += (vv_star[row] - vv[row]) * RHO * it->volume() / DT;
     }
-  }
-  // After F_f and P are converged, solve u_star and v_star again as the final solutions for u and v
-  MatDuplicate(M_USTAR_FIXED, MAT_COPY_VALUES, &M_USTAR);
-  MatDuplicate(M_VSTAR_FIXED, MAT_COPY_VALUES, &M_VSTAR);
-  // update advection operator to solve u_star and v_star
-  updateAdvectionOperator(app.p_mesh, F_face_star, M_USTAR, M_VSTAR);
-  // update rhs due to pressure gradient
-  updatePressureGradientAsSource(app.p_mesh, p, p_src_x, p_src_y);
-  VecAXPY(b_USTAR, 1.0, p_src_x);
-  VecAXPY(b_VSTAR, 1.0, p_src_y);
+    VecRestoreArray(b_USTAR, &bb_ustar);
+    VecRestoreArray(b_VSTAR, &bb_vstar);
+    VecRestoreArray(u, &uu);  VecRestoreArray(v, &vv);  VecRestoreArray(u_STAR, &uu_star);  VecRestoreArray(v_STAR, &vv_star);
 
-  KSPSetOperators(ksp_USTAR, M_USTAR, M_USTAR);
-  KSPSetFromOptions(ksp_USTAR);
-  KSPSetOperators(ksp_VSTAR, M_VSTAR, M_VSTAR);
-  KSPSetFromOptions(ksp_VSTAR);
-  KSPSolve(ksp_USTAR, b_USTAR, u_STAR);  // now u_star is u^(n+1)
-  KSPSolve(ksp_VSTAR, b_VSTAR, v_STAR);  // now v_star is v^(n+1)
+    // update u and v from u_star and v_star
+    VecCopy(u_STAR, u);
+    VecCopy(v_STAR, v);
+    // End of time step
 
-  // Update rhs of velocity equations
-  //PetscScalar * bb_ustar, * bb_vstar;
-  //PetscScalar * uu, * vv;
-  VecAXPY(b_USTAR, -1.0, p_src_x);
-  VecAXPY(b_VSTAR, -1.0, p_src_y);
-  PetscScalar * uu_star, * vv_star;
-  VecGetArray(b_USTAR, &bb_ustar);
-  VecGetArray(b_VSTAR, &bb_vstar);
-  VecGetArray(u, &uu);  VecGetArray(v, &vv);  VecGetArray(u_STAR, &uu_star);  VecGetArray(v_STAR, &vv_star);
-  for(std::vector<FluentTriCell>::iterator it = cell_set.begin(); it != cell_set.end(); ++it)
-  {
-    double DT = 0.01;
-    double RHO = 1.0;
+    std::string file_name = "output/output_" + std::to_string(time_step) + ".vtu";
+    FILE * ptr_File;
+    ptr_File = fopen(file_name.c_str(), "w");
+    app.p_mesh->writeMesh(ptr_File);
+    std::ostringstream out_string_stream;
+    out_string_stream << "      <CellData>" << "\n";
 
-    PetscInt row = it->id() - 1;
+    // CELL DATA (cell ID)
+    out_string_stream << "        <DataArray type=\"Float32\" Name=\"Cell_ID\" format=\"ascii\">" << "\n";
+    for(unsigned int i = 0; i < cell_set.size(); i++)
+      out_string_stream << "          " << cell_set[i].id() << "\n";
+    out_string_stream << "        </DataArray>" << "\n";
+    // CELL DATA (volume)
+    out_string_stream << "        <DataArray type=\"Float32\" Name=\"volume\" format=\"ascii\">" << "\n";
+    for(unsigned int i = 0; i < cell_set.size(); i++)
+      out_string_stream << "          " << cell_set[i].volume() << "\n";
+    out_string_stream << "        </DataArray>" << "\n";
 
-    bb_ustar[row] += (uu_star[row] - uu[row]) * RHO * it->volume() / DT;
-    bb_vstar[row] += (vv_star[row] - vv[row]) * RHO * it->volume() / DT;
-  }
-  VecRestoreArray(b_USTAR, &bb_ustar);
-  VecRestoreArray(b_VSTAR, &bb_vstar);
-  VecRestoreArray(u, &uu);  VecRestoreArray(v, &vv);  VecRestoreArray(u_STAR, &uu_star);  VecRestoreArray(v_STAR, &vv_star);
+    //PetscScalar * uu;
+    VecGetArray(u, &uu);
+    out_string_stream << "        <DataArray type=\"Float32\" Name=\"u_star\" format=\"ascii\">" << "\n";
+    for(unsigned int i = 0; i < cell_set.size(); i++)
+      out_string_stream << "          " << uu[i] << "\n";
+    out_string_stream << "        </DataArray>" << "\n";
+    VecRestoreArray(u, &uu);
 
-  // update u and v from u_star and v_star
-  VecCopy(u_STAR, u);
-  VecCopy(v_STAR, v);
-  // End of time step
+    //PetscScalar * vv;
+    VecGetArray(v, &vv);
+    out_string_stream << "        <DataArray type=\"Float32\" Name=\"v_star\" format=\"ascii\">" << "\n";
+    for(unsigned int i = 0; i < cell_set.size(); i++)
+      out_string_stream << "          " << vv[i] << "\n";
+    out_string_stream << "        </DataArray>" << "\n";
+    VecRestoreArray(v, &vv);
 
-  std::string file_name = "output/output_" + std::to_string(time_step) + ".vtu";
-  FILE * ptr_File;
-  ptr_File = fopen(file_name.c_str(), "w");
-  app.p_mesh->writeMesh(ptr_File);
-  std::ostringstream out_string_stream;
-  out_string_stream << "      <CellData>" << "\n";
+    PetscScalar * pp;
+    VecGetArray(p, &pp);
+    out_string_stream << "        <DataArray type=\"Float32\" Name=\"pressure\" format=\"ascii\">" << "\n";
+    for(unsigned int i = 0; i < cell_set.size(); i++)
+      out_string_stream << "          " << pp[i] << "\n";
+    out_string_stream << "        </DataArray>" << "\n";
+    VecRestoreArray(p, &pp);
 
-  // CELL DATA (cell ID)
-  out_string_stream << "        <DataArray type=\"Float32\" Name=\"Cell_ID\" format=\"ascii\">" << "\n";
-  for(unsigned int i = 0; i < cell_set.size(); i++)
-    out_string_stream << "          " << cell_set[i].id() << "\n";
-  out_string_stream << "        </DataArray>" << "\n";
-  // CELL DATA (volume)
-  out_string_stream << "        <DataArray type=\"Float32\" Name=\"volume\" format=\"ascii\">" << "\n";
-  for(unsigned int i = 0; i < cell_set.size(); i++)
-    out_string_stream << "          " << cell_set[i].volume() << "\n";
-  out_string_stream << "        </DataArray>" << "\n";
+    out_string_stream << "      </CellData>" << "\n";
 
-  //PetscScalar * uu;
-  VecGetArray(u, &uu);
-  out_string_stream << "        <DataArray type=\"Float32\" Name=\"u_star\" format=\"ascii\">" << "\n";
-  for(unsigned int i = 0; i < cell_set.size(); i++)
-    out_string_stream << "          " << uu[i] << "\n";
-  out_string_stream << "        </DataArray>" << "\n";
-  VecRestoreArray(u, &uu);
+    // POINT DATA
+    out_string_stream << "      <PointData>" << "\n";
+    // NODE ID
+    out_string_stream << "        <DataArray type=\"Float32\" Name=\"Node_ID\" format=\"ascii\">" << "\n";
+    for(unsigned int i = 0; i < node_set.size(); i++)
+      out_string_stream << "          " << node_set[i].id() << "\n";
+    out_string_stream << "        </DataArray>" << "\n";
+    out_string_stream << "      </PointData>" << "\n";
 
-  //PetscScalar * vv;
-  VecGetArray(v, &vv);
-  out_string_stream << "        <DataArray type=\"Float32\" Name=\"v_star\" format=\"ascii\">" << "\n";
-  for(unsigned int i = 0; i < cell_set.size(); i++)
-    out_string_stream << "          " << vv[i] << "\n";
-  out_string_stream << "        </DataArray>" << "\n";
-  VecRestoreArray(v, &vv);
+    fprintf(ptr_File, "%s", out_string_stream.str().c_str());
 
-  PetscScalar * pp;
-  VecGetArray(p, &pp);
-  out_string_stream << "        <DataArray type=\"Float32\" Name=\"pressure\" format=\"ascii\">" << "\n";
-  for(unsigned int i = 0; i < cell_set.size(); i++)
-    out_string_stream << "          " << pp[i] << "\n";
-  out_string_stream << "        </DataArray>" << "\n";
-  VecRestoreArray(p, &pp);
-
-  out_string_stream << "      </CellData>" << "\n";
-
-  // POINT DATA
-  out_string_stream << "      <PointData>" << "\n";
-  // NODE ID
-  out_string_stream << "        <DataArray type=\"Float32\" Name=\"Node_ID\" format=\"ascii\">" << "\n";
-  for(unsigned int i = 0; i < node_set.size(); i++)
-    out_string_stream << "          " << node_set[i].id() << "\n";
-  out_string_stream << "        </DataArray>" << "\n";
-  out_string_stream << "      </PointData>" << "\n";
-
-  fprintf(ptr_File, "%s", out_string_stream.str().c_str());
-
-  app.p_mesh->finishFile(ptr_File);
-  fclose(ptr_File);
-  //delete p_mesh;
+    app.p_mesh->finishFile(ptr_File);
+    fclose(ptr_File);
+    //delete p_mesh;
   }
 
 
