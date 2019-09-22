@@ -1,6 +1,17 @@
 #ifndef INC_PROBLEMS_H
 #define INC_PROBLEMS_H
 
+#include "FluentTwoDMesh.h"
+
+static double DT = 0.01;
+static double VISC = 1.0;
+
+struct GRAD;
+void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Mat M_USTAR, Mat M_VSTAR);
+void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec F_0f_star, Vec b_p);
+void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Vec p, GRAD * grad_u_star);
+void updatePressureGradientAsSource(FluentTwoDMesh * p_mesh, Vec p, Vec p_src_x, Vec p_src_y);
+
 struct GRAD
 {
   int size;

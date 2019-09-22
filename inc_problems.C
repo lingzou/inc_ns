@@ -2,7 +2,7 @@
 #include <petscsnes.h>
 
 #include "inc_problems.h"
-#include "FluentTwoDMesh.h"
+//#include "FluentTwoDMesh.h"
 
 void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Mat M_USTAR, Mat M_VSTAR)
 {
@@ -114,14 +114,7 @@ void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec 
       case 2:
       case 3:
       case 4:
-      {
-        // Nothing to do, F_face on all boundaries are zero
-        /*
-        for (unsigned int j = 0; j < (it->second).size(); j++)
-        {
-          Face & face = (it->second).at(j);
-          f0f[face.id()] = 0.0;
-        }*/
+      { // Nothing to do, F_face on all boundaries are zero
       }
       break;
 
@@ -143,12 +136,8 @@ void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec 
           double val = u_face * face_normal.x() + v_face * face_normal.y();
           f0f[face.id()] = val;
 
-          double DT = 0.01;
           bb_p[cell_id1-1] += val / DT;
           bb_p[cell_id2-1] -= val / DT;
-
-          //std::cout << "j = " << j << " " << face.distance_ratio() << std::endl;
-          //std::cout << "j = " << j << " " << face.area() << std::endl;
         }
       }
       break;
@@ -245,7 +234,6 @@ void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Ve
           double pressure_correction = (pp[cell_id2-1] - pp[cell_id1-1]) / distance + grad_p_dot_n2_cell1 + grad_p_dot_n2_cell2;
           pressure_correction *= area_f;
 
-          double DT = 0.01;
           ff[face.id()] = f0f[face.id()] - DT * pressure_correction;
         }
       }
