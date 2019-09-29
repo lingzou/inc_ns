@@ -29,17 +29,17 @@ int main(int argc, char **argv)
   app.p_mesh->createMeshFromFile("cavity.msh", false, true);
   std::cout << "# of faces: " << app.p_mesh->n_Faces() << std::endl;
 
-  const std::vector<Node> & node_set = app.p_mesh->getNodeSet();
-  std::map<int, std::vector<Face> > & face_zone_map = app.p_mesh->getFaceZoneMap();
+  std::vector<Node*> & node_set = app.p_mesh->getNodeSet();
+  std::map<int, std::vector<Face*> > & face_zone_map = app.p_mesh->getFaceZoneMap();
   std::vector<FluentTriCell> & cell_set = app.p_mesh->getCellSet();
 
   std::cout << "Number of nodes = " << node_set.size() << std::endl;
   std::cout << "Number of cells = " << cell_set.size() << std::endl;
 
-  for (std::map<int, std::vector<Face> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
+  for (std::map<int, std::vector<Face*> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
   {
     long int zone_id = it->first;
-    std::vector<Face> & faces = it->second;
+    std::vector<Face*> & faces = it->second;
 
     std::cout << "Face Zone " << zone_id << std::endl;
     std::cout << "   number of faces = " << faces.size() << std::endl;
@@ -59,7 +59,7 @@ int main(int argc, char **argv)
   std::cout << "GRAD START" << std::endl;
   GRAD grad_u_star[n_Cell];
   GRAD grad_v_star[n_Cell];
-  for (std::map<int, std::vector<Face> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
+  for (std::map<int, std::vector<Face*> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
   {
     int zone = it->first;
     std::cout << "zone = " << zone << std::endl;
@@ -72,9 +72,9 @@ int main(int argc, char **argv)
       {
         for (unsigned int j = 0; j < (it->second).size(); j++)
         {
-          Face & face = (it->second)[j];
-          long int cell_id1 = face.cell_id1();
-          Vec3d face_normal = face.faceNormal();
+          Face * face = (it->second)[j];
+          long int cell_id1 = face->cell_id1();
+          Vec3d face_normal = face->faceNormal();
           double v1 = cell_set.at(cell_id1-1).volume();
 
           grad_u_star[cell_id1-1].addBCContribution(U_BC[zone] * face_normal.x() / v1, U_BC[zone] * face_normal.y() / v1);
@@ -87,12 +87,12 @@ int main(int argc, char **argv)
       {
         for (unsigned int j = 0; j < (it->second).size(); j++)
         {
-          Face & face = (it->second)[j];
-          long int cell_id1 = face.cell_id1();
-          long int cell_id2 = face.cell_id2();
+          Face * face = (it->second)[j];
+          long int cell_id1 = face->cell_id1();
+          long int cell_id2 = face->cell_id2();
           double v1 = cell_set.at(cell_id1-1).volume();
           double v2 = cell_set.at(cell_id2-1).volume();
-          Vec3d face_normal = face.faceNormal();
+          Vec3d face_normal = face->faceNormal();
 
           double alpha_12 = v2 / (v1 + v2);
           double alpha_21 = 1.0 - alpha_12;
@@ -207,7 +207,7 @@ int main(int argc, char **argv)
   VecGetArray(v, &vv);
 
   // Diffusion terms
-  for (std::map<int, std::vector<Face> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
+  for (std::map<int, std::vector<Face*> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
   {
     //double VISC = 1.0;
     int zone = it->first;
@@ -221,30 +221,30 @@ int main(int argc, char **argv)
         std::cout << "zone = " << zone << std::endl;
         for (unsigned int j = 0; j < (it->second).size(); j++)
         {
-          Face & face = (it->second).at(j);
-          long int cell_id1 = face.cell_id1();
-          long int cell_id2 = face.cell_id2();
+          Face * face = (it->second).at(j);
+          long int cell_id1 = face->cell_id1();
+          long int cell_id2 = face->cell_id2();
 
           long int cell_id = (cell_id1 > 0) ? cell_id1 : cell_id2;
           const FluentTriCell & cell = cell_set.at(cell_id-1);
 
-          long int node_id1 = face.node_id1();
-          long int node_id2 = face.node_id2();
+          long int node_id1 = face->node_id1();
+          long int node_id2 = face->node_id2();
 
           Point pt0 = cell.centroid();
-          Point pt1 = node_set.at(node_id1-1).point();
-          Point pt2 = node_set.at(node_id2-1).point();
+          Point pt1 = node_set.at(node_id1-1)->point();
+          Point pt2 = node_set.at(node_id2-1)->point();
           double distance = app.p_mesh->node_to_face_distance(pt0, pt1, pt2);
 
           PetscInt row = cell_id - 1;
           PetscInt col[1]; col[0] = row;
           double val[1];
-          val[0] = VISC * face.area() / distance;
+          val[0] = VISC * face->area() / distance;
           MatSetValues(M_USTAR_FIXED, 1, &row, 1, col, val, ADD_VALUES);
           MatSetValues(M_VSTAR_FIXED, 1, &row, 1, col, val, ADD_VALUES);
 
-          bb_ustar[row] += VISC * face.area() / distance * U_BC[zone];
-          bb_vstar[row] += VISC * face.area() / distance * V_BC[zone];
+          bb_ustar[row] += VISC * face->area() / distance * U_BC[zone];
+          bb_vstar[row] += VISC * face->area() / distance * V_BC[zone];
         }
       }
       break;
@@ -254,9 +254,9 @@ int main(int argc, char **argv)
         std::cout << "zone = " << zone << std::endl;
         for (unsigned int j = 0; j < (it->second).size(); j++)
         {
-          Face & face = (it->second).at(j);
-          long int cell_id1 = face.cell_id1();
-          long int cell_id2 = face.cell_id2();
+          Face * face = (it->second).at(j);
+          long int cell_id1 = face->cell_id1();
+          long int cell_id2 = face->cell_id2();
 
           const FluentTriCell & cell_1 = cell_set.at(cell_id1-1);
           const FluentTriCell & cell_2 = cell_set.at(cell_id2-1);
@@ -268,11 +268,11 @@ int main(int argc, char **argv)
           double distance = ct_to_ct.norm();
           Vec3d n1 = ct_to_ct.unitVector();
 
-          Vec3d face_normal = face.faceNormal();
+          Vec3d face_normal = face->faceNormal();
           Vec3d nf = face_normal.unitVector();
           Vec3d n2 = nf - n1;
 
-          double area_f = face.area();
+          double area_f = face->area();
           double alpha_12 = v2 / (v1 + v2);
           double alpha_21 = 1.0 - alpha_12;
           // cell 1
@@ -544,7 +544,7 @@ int main(int argc, char **argv)
     // NODE ID
     out_string_stream << "        <DataArray type=\"Float32\" Name=\"Node_ID\" format=\"ascii\">" << "\n";
     for(unsigned int i = 0; i < node_set.size(); i++)
-      out_string_stream << "          " << node_set[i].id() << "\n";
+      out_string_stream << "          " << node_set[i]->id() << "\n";
     out_string_stream << "        </DataArray>" << "\n";
     out_string_stream << "      </PointData>" << "\n";
 

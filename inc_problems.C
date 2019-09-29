@@ -10,8 +10,8 @@ void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Mat M_UST
   VecGetArray(F_face_star, &ff);
 
   std::vector<FluentTriCell> & cell_set = p_mesh->getCellSet();
-  std::map<int, std::vector<Face> > & face_zone_map = p_mesh->getFaceZoneMap();
-  for (std::map<int, std::vector<Face> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
+  std::map<int, std::vector<Face*> > & face_zone_map = p_mesh->getFaceZoneMap();
+  for (std::map<int, std::vector<Face*> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
   {
     int zone = it->first;
     switch (zone)
@@ -31,10 +31,10 @@ void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Mat M_UST
         {
           double GAMMA = 0.5;
 
-          Face & face = (it->second).at(j);
-          long int face_id = face.id();
-          long int cell_id1 = face.cell_id1();
-          long int cell_id2 = face.cell_id2();
+          Face * face = (it->second).at(j);
+          long int face_id = face->id();
+          long int cell_id1 = face->cell_id1();
+          long int cell_id2 = face->cell_id2();
 
           const FluentTriCell & cell_1 = cell_set.at(cell_id1-1);
           const FluentTriCell & cell_2 = cell_set.at(cell_id2-1);
@@ -50,7 +50,7 @@ void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Mat M_UST
           //Vec3d nf = face_normal.unitVector();
           //Vec3d n2 = nf - n1;
 
-          double area_f = face.area();
+          double area_f = face->area();
           double alpha_12 = v2 / (v1 + v2);
           double alpha_21 = 1.0 - alpha_12;
           // cell 1
@@ -104,8 +104,8 @@ void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec 
   VecGetArray(v_STAR, &vv_star);
   VecGetArray(b_p, &bb_p);
 
-  std::map<int, std::vector<Face> > & face_zone_map = p_mesh->getFaceZoneMap();
-  for (std::map<int, std::vector<Face> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
+  std::map<int, std::vector<Face*> > & face_zone_map = p_mesh->getFaceZoneMap();
+  for (std::map<int, std::vector<Face*> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
   {
     int zone = it->first;
     switch (zone)
@@ -122,19 +122,19 @@ void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec 
       {
         for (unsigned int j = 0; j < (it->second).size(); j++)
         {
-          Face & face = (it->second).at(j);
-          double r = face.distance_ratio();
+          Face * face = (it->second).at(j);
+          double r = face->distance_ratio();
 
-          long int cell_id1 = face.cell_id1();
-          long int cell_id2 = face.cell_id2();
+          long int cell_id1 = face->cell_id1();
+          long int cell_id2 = face->cell_id2();
 
           double u_face = uu_star[cell_id1-1] * (1.0 - r) + uu_star[cell_id2-1] * r;
           double v_face = vv_star[cell_id1-1] * (1.0 - r) + vv_star[cell_id2-1] * r;
 
-          Vec3d face_normal = face.faceNormal();
+          Vec3d face_normal = face->faceNormal();
 
           double val = u_face * face_normal.x() + v_face * face_normal.y();
-          f0f[face.id()] = val;
+          f0f[face->id()] = val;
 
           bb_p[cell_id1-1] += val / DT;
           bb_p[cell_id2-1] -= val / DT;
@@ -165,8 +165,8 @@ void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Ve
   VecGetArray(p, &pp);
 
   std::vector<FluentTriCell> & cell_set = p_mesh->getCellSet();
-  std::map<int, std::vector<Face> > & face_zone_map = p_mesh->getFaceZoneMap();
-  for (std::map<int, std::vector<Face> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
+  std::map<int, std::vector<Face*> > & face_zone_map = p_mesh->getFaceZoneMap();
+  for (std::map<int, std::vector<Face*> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
   {
     int zone = it->first;
     switch (zone)
@@ -185,9 +185,9 @@ void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Ve
         for (unsigned int j = 0; j < (it->second).size(); j++)
         {
           //std::cout << "Face j = " << j << std::endl;
-          Face & face = (it->second).at(j);
-          long int cell_id1 = face.cell_id1();
-          long int cell_id2 = face.cell_id2();
+          Face * face = (it->second).at(j);
+          long int cell_id1 = face->cell_id1();
+          long int cell_id2 = face->cell_id2();
 
           const FluentTriCell & cell_1 = cell_set.at(cell_id1-1);
           const FluentTriCell & cell_2 = cell_set.at(cell_id2-1);
@@ -199,11 +199,11 @@ void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Ve
           double distance = ct_to_ct.norm();
           Vec3d n1 = ct_to_ct.unitVector();
 
-          Vec3d face_normal = face.faceNormal();
+          Vec3d face_normal = face->faceNormal();
           Vec3d nf = face_normal.unitVector();
           Vec3d n2 = nf - n1;
 
-          double area_f = face.area();
+          double area_f = face->area();
           double alpha_12 = v2 / (v1 + v2);
           double alpha_21 = 1.0 - alpha_12;
 
@@ -234,7 +234,7 @@ void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Ve
           double pressure_correction = (pp[cell_id2-1] - pp[cell_id1-1]) / distance + grad_p_dot_n2_cell1 + grad_p_dot_n2_cell2;
           pressure_correction *= area_f;
 
-          ff[face.id()] = f0f[face.id()] - DT * pressure_correction;
+          ff[face->id()] = f0f[face->id()] - DT * pressure_correction;
         }
       }
       break;
@@ -259,8 +259,8 @@ void updatePressureGradientAsSource(FluentTwoDMesh * p_mesh, Vec p, Vec p_src_x,
   VecGetArray(p_src_y, &pp_src_y);
 
   std::vector<FluentTriCell> & cell_set = p_mesh->getCellSet();
-  std::map<int, std::vector<Face> > & face_zone_map = p_mesh->getFaceZoneMap();
-  for (std::map<int, std::vector<Face> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
+  std::map<int, std::vector<Face*> > & face_zone_map = p_mesh->getFaceZoneMap();
+  for (std::map<int, std::vector<Face*> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
   {
     int zone = it->first;
     //std::cout << "zone = " << zone << std::endl;
@@ -273,9 +273,9 @@ void updatePressureGradientAsSource(FluentTwoDMesh * p_mesh, Vec p, Vec p_src_x,
       {
         for (unsigned int j = 0; j < (it->second).size(); j++)
         {
-          Face & face = (it->second)[j];
-          long int cell_id1 = face.cell_id1();
-          Vec3d face_normal = face.faceNormal();
+          Face * face = (it->second)[j];
+          long int cell_id1 = face->cell_id1();
+          Vec3d face_normal = face->faceNormal();
           double p_face = pp[cell_id1-1];
 
           pp_src_x[cell_id1-1] -= p_face * face_normal.x();
@@ -288,12 +288,12 @@ void updatePressureGradientAsSource(FluentTwoDMesh * p_mesh, Vec p, Vec p_src_x,
       {
         for (unsigned int j = 0; j < (it->second).size(); j++)
         {
-          Face & face = (it->second)[j];
-          long int cell_id1 = face.cell_id1();
-          long int cell_id2 = face.cell_id2();
+          Face * face = (it->second)[j];
+          long int cell_id1 = face->cell_id1();
+          long int cell_id2 = face->cell_id2();
           double v1 = cell_set.at(cell_id1-1).volume();
           double v2 = cell_set.at(cell_id2-1).volume();
-          Vec3d face_normal = face.faceNormal();
+          Vec3d face_normal = face->faceNormal();
 
           double alpha_12 = v2 / (v1 + v2);
           double alpha_21 = 1.0 - alpha_12;
