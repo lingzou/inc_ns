@@ -193,7 +193,7 @@ int main(int argc, char **argv)
   KSPCreate(PETSC_COMM_WORLD, &ksp_USTAR);
   KSPCreate(PETSC_COMM_WORLD, &ksp_VSTAR);
   KSPCreate(PETSC_COMM_WORLD, &ksp_P);
-  //KSPSetType(ksp_P, KSPCG);
+  KSPSetType(ksp_P, KSPCG);
 
   std::cout << "KSP END SETUP" << std::endl;
 
@@ -395,11 +395,14 @@ int main(int argc, char **argv)
   VecRestoreArray(v, &vv);
   // std::cout << "KSP START" << std::endl;
 
-  for (int time_step = 0; time_step < 20; time_step++)
+  unsigned int N_TIMESTEP = 20;
+  for (int time_step = 0; time_step < N_TIMESTEP; time_step++)
   {
     // Begin of time step
     // Perform u_star/v_star -> F_0f -> P -> F_f iteration to get a converged F_f (as well as P)
-    for (int i = 0; i < 20; i++)
+    std::cout << "Time Step " << time_step << " begin >>>>>>>>>" << std::endl;
+    int N_it_max = 20;
+    for (int i = 0; i < N_it_max; i++)
     {
       MatDuplicate(M_USTAR_FIXED, MAT_COPY_VALUES, &M_USTAR);
       MatDuplicate(M_VSTAR_FIXED, MAT_COPY_VALUES, &M_VSTAR);
@@ -444,6 +447,11 @@ int main(int argc, char **argv)
       {
         std::cout << "it = " << i << ": L2 error = " << error_norm << std::endl;
         break;
+      }
+      if (i == N_it_max - 1)
+      {
+        std::cout << "it = " << i << ": L2 error = " << error_norm << ". Did not converge." << std::endl;
+        exit(1);
       }
     }
     // After F_f and P are converged, solve u_star and v_star again as the final solutions for u and v
@@ -546,6 +554,36 @@ int main(int argc, char **argv)
     for(unsigned int i = 0; i < node_set.size(); i++)
       out_string_stream << "          " << node_set[i]->id() << "\n";
     out_string_stream << "        </DataArray>" << "\n";
+
+    // Stream function
+    // Assuming it is expensive to evaluate streamline function, just compute the last time step
+    /**** Stream Function ****/
+    if (time_step == N_TIMESTEP-1)
+    {
+      std::vector<StreamFunctionNode *> SFNodeVec(node_set.size(), NULL);
+
+      PetscScalar * ff;
+      VecGetArray(F_face_star, &ff);
+      for (int i = 0; i < node_set.size(); i++)
+      {
+        StreamFunctionNode * SFNode = new StreamFunctionNode(node_set.at(i), SFNodeVec, ff);
+        SFNodeVec[i] = SFNode;
+      }
+
+      SFNodeVec.at(0)->computeStreamFunction(0.0);
+
+      VecRestoreArray(F_face_star, &ff);
+
+      out_string_stream << "        <DataArray type=\"Float32\" Name=\"StreamFunction\" format=\"ascii\">" << "\n";
+      for(unsigned int i = 0; i < node_set.size(); i++)
+        out_string_stream << "          " << SFNodeVec[i]->getSFValue() << "\n";
+      out_string_stream << "        </DataArray>" << "\n";
+      for (int i = 0; i < SFNodeVec.size(); i++)
+      {
+        delete SFNodeVec.at(i);
+      }
+    }
+
     out_string_stream << "      </PointData>" << "\n";
 
     fprintf(ptr_File, "%s", out_string_stream.str().c_str());
@@ -553,8 +591,9 @@ int main(int argc, char **argv)
     app.p_mesh->finishFile(ptr_File);
     fclose(ptr_File);
     //delete p_mesh;
-  }
 
+    std::cout << "Time Step " << time_step << " end <<<<<<<<<" << std::endl << std::endl;
+  }
 
   VecDestroy(&b_USTAR); VecDestroy(&u_STAR); VecDestroy(&u); MatDestroy(&M_USTAR_FIXED); MatDestroy(&M_USTAR);
   VecDestroy(&b_VSTAR); VecDestroy(&v_STAR); VecDestroy(&v); MatDestroy(&M_VSTAR_FIXED); MatDestroy(&M_VSTAR);

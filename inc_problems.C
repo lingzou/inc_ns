@@ -4,6 +4,36 @@
 #include "inc_problems.h"
 //#include "FluentTwoDMesh.h"
 
+void
+StreamFunctionNode::computeStreamFunction(double value)
+{
+  if (!_has_computed)
+  {
+    _stream_function_value = value;
+    _has_computed = true;
+
+    std::vector<Face*> & connected_faces = _node->getConnectedFace();
+    for (unsigned int i = 0; i < connected_faces.size(); i++)
+    {
+      long int neighbor_node_id = connected_faces[i]->neighbor_node_id(_node->id());
+      StreamFunctionNode * nb_SF_Node = _parent_vec.at(neighbor_node_id-1);
+      if (!nb_SF_Node->hasComputed())
+      {
+        long int face_id = connected_faces[i]->id();
+        double F_value = _F_face[face_id];
+        double next_node_value = 0.0;
+
+        if (_node->id() == connected_faces[i]->node_id1())
+          next_node_value = _stream_function_value + F_value;
+        else
+          next_node_value = _stream_function_value - F_value;
+
+        nb_SF_Node->computeStreamFunction(next_node_value);
+      }
+    }
+  }
+}
+
 void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Mat M_USTAR, Mat M_VSTAR)
 {
   PetscScalar * ff;
@@ -214,7 +244,7 @@ void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Ve
           for (int i = 0; i < size1+1; i++)
           {
             long int cell_id_i = grad_u_star[cell_id1-1].cell_id[i]-1;
-            double pi = pp[i];
+            double pi = pp[cell_id_i];
             grad_p_dot_n2_cell1 += (grad_u_star[cell_id1-1].coef_x[i] * n2.x() + grad_u_star[cell_id1-1].coef_y[i] * n2.y()) * pi;
           }
           grad_p_dot_n2_cell1 *= alpha_12;
@@ -225,8 +255,8 @@ void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Ve
           if (size2 > 3) {std::cerr<<"size2 > 3\n"; exit(1);}
           for (int i = 0; i < size2+1; i++)
           {
-            long int cell_id_i = grad_u_star[cell_id1-2].cell_id[i]-1;
-            double pi = pp[i];
+            long int cell_id_i = grad_u_star[cell_id2-1].cell_id[i]-1;
+            double pi = pp[cell_id_i];
             grad_p_dot_n2_cell2 += (grad_u_star[cell_id2-1].coef_x[i] * n2.x() + grad_u_star[cell_id2-1].coef_y[i] * n2.y()) * pi;
           }
           grad_p_dot_n2_cell2 *= alpha_21;

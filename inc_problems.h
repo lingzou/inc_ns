@@ -3,8 +3,30 @@
 
 #include "FluentTwoDMesh.h"
 
-static double DT = 0.01;
-static double VISC = 1.0;
+static double DT = 0.05;
+static double VISC = 0.01;
+
+class StreamFunctionNode
+{
+public:
+  StreamFunctionNode(Node * node, std::vector<StreamFunctionNode *> & parent_vec, double * F_face) :
+  _node(node), _has_computed(false), _stream_function_value(0.0), _parent_vec(parent_vec), _F_face(F_face)
+  {}
+  ~StreamFunctionNode()
+  {}
+
+  void computeStreamFunction(double value);
+  double getSFValue() { return _stream_function_value; }
+  void setSFValue(double val) { _stream_function_value = val; }
+  bool hasComputed() { return _has_computed; }
+
+protected:
+  Node * _node;
+  bool _has_computed;
+  double _stream_function_value;
+  std::vector<StreamFunctionNode *> & _parent_vec;
+  double * _F_face;
+};
 
 struct GRAD;
 void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Mat M_USTAR, Mat M_VSTAR);
