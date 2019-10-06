@@ -2,6 +2,23 @@
 #define INC_PROBLEMS_H
 
 #include "FluentTwoDMesh.h"
+#include <map>
+
+/* Setup B.C. */
+static std::map<int, bool> has_U_BC;
+static std::map<int, bool> has_V_BC;
+static std::map<int, bool> has_p_BC;
+static std::map<int, double> U_BC;
+static std::map<int, double> V_BC;
+static std::map<int, double> p_BC;
+/*
+has_U_BC[2] = true; has_U_BC[3] = true; has_U_BC[4] = true; has_U_BC[5] = true;
+has_V_BC[2] = true; has_V_BC[3] = true; has_V_BC[4] = true; has_V_BC[5] = true;
+has_p_BC[2] = false; has_p_BC[3] = false; has_p_BC[4] = false; has_p_BC[5] = false;
+U_BC[2] = 0.0; U_BC[3] = 0.0; U_BC[4] = 0.0; U_BC[5] = 1.0;
+V_BC[2] = 0.0; V_BC[3] = 0.0; V_BC[4] = 0.0; V_BC[5] = 0.0;
+p_BC[2] = -1e6; p_BC[3] = -1e6; p_BC[4] = -1e6; p_BC[5] = -1e6;*/
+/* End of B.C. setting */
 
 static double DT = 0.05;
 static double VISC = 0.01;

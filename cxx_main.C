@@ -48,17 +48,18 @@ int main(int argc, char **argv)
   long int n_Cell = app.p_mesh->n_Cells();
   long int n_Face = app.p_mesh->n_Faces();
 
-  /* Setup B.C. */
-  std::map<int, double> U_BC;
-  std::map<int, double> V_BC;
+  has_U_BC[2] = true; has_U_BC[3] = true; has_U_BC[4] = true; has_U_BC[5] = true;
+  has_V_BC[2] = true; has_V_BC[3] = true; has_V_BC[4] = true; has_V_BC[5] = true;
+  has_p_BC[2] = false; has_p_BC[3] = false; has_p_BC[4] = false; has_p_BC[5] = false;
   U_BC[2] = 0.0; U_BC[3] = 0.0; U_BC[4] = 0.0; U_BC[5] = 1.0;
   V_BC[2] = 0.0; V_BC[3] = 0.0; V_BC[4] = 0.0; V_BC[5] = 0.0;
-  /* End of B.C. setting */
+  p_BC[2] = -1e6; p_BC[3] = -1e6; p_BC[4] = -1e6; p_BC[5] = -1e6;
 
   // --->
   std::cout << "GRAD START" << std::endl;
   GRAD grad_u_star[n_Cell];
   GRAD grad_v_star[n_Cell];
+  GRAD grad_p[n_Cell];
   for (std::map<int, std::vector<Face*> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
   {
     int zone = it->first;
@@ -77,8 +78,12 @@ int main(int argc, char **argv)
           Vec3d face_normal = face->faceNormal();
           double v1 = cell_set.at(cell_id1-1).volume();
 
-          grad_u_star[cell_id1-1].addBCContribution(U_BC[zone] * face_normal.x() / v1, U_BC[zone] * face_normal.y() / v1);
-          grad_v_star[cell_id1-1].addBCContribution(V_BC[zone] * face_normal.x() / v1, V_BC[zone] * face_normal.y() / v1);
+          if (has_U_BC[zone])
+            grad_u_star[cell_id1-1].addBCContribution(U_BC[zone] * face_normal.x() / v1, U_BC[zone] * face_normal.y() / v1);
+          if (has_V_BC[zone])
+            grad_v_star[cell_id1-1].addBCContribution(V_BC[zone] * face_normal.x() / v1, V_BC[zone] * face_normal.y() / v1);
+          if (has_p_BC[zone])
+            grad_p[cell_id1-1].addBCContribution(p_BC[zone] * face_normal.x() / v1, p_BC[zone] * face_normal.y() / v1);
         }
       }
       break;
@@ -99,21 +104,27 @@ int main(int argc, char **argv)
           // Cell 1
           grad_u_star[cell_id1-1].addCoef(0, cell_id1, alpha_12 * face_normal.x() / v1, alpha_12 * face_normal.y() / v1);
           grad_v_star[cell_id1-1].addCoef(0, cell_id1, alpha_12 * face_normal.x() / v1, alpha_12 * face_normal.y() / v1);
+               grad_p[cell_id1-1].addCoef(0, cell_id1, alpha_12 * face_normal.x() / v1, alpha_12 * face_normal.y() / v1);
 
           grad_u_star[cell_id1-1].size++;
           grad_v_star[cell_id1-1].size++;
+               grad_p[cell_id1-1].size++;
 
           grad_u_star[cell_id1-1].addCoef(grad_u_star[cell_id1-1].size, cell_id2, alpha_21 * face_normal.x() / v1, alpha_21 * face_normal.y() / v1);
           grad_v_star[cell_id1-1].addCoef(grad_v_star[cell_id1-1].size, cell_id2, alpha_21 * face_normal.x() / v1, alpha_21 * face_normal.y() / v1);
+               grad_p[cell_id1-1].addCoef(     grad_p[cell_id1-1].size, cell_id2, alpha_21 * face_normal.x() / v1, alpha_21 * face_normal.y() / v1);
           // Cell 2
           grad_u_star[cell_id2-1].addCoef(0, cell_id2, -alpha_21 * face_normal.x() / v2, -alpha_21 * face_normal.y() / v2);
           grad_v_star[cell_id2-1].addCoef(0, cell_id2, -alpha_21 * face_normal.x() / v2, -alpha_21 * face_normal.y() / v2);
+               grad_p[cell_id2-1].addCoef(0, cell_id2, -alpha_21 * face_normal.x() / v2, -alpha_21 * face_normal.y() / v2);
 
           grad_u_star[cell_id2-1].size++;
           grad_v_star[cell_id2-1].size++;
+               grad_p[cell_id2-1].size++;
 
           grad_u_star[cell_id2-1].addCoef(grad_u_star[cell_id2-1].size, cell_id1, -alpha_12 * face_normal.x() / v2, -alpha_12 * face_normal.y() / v2);
           grad_v_star[cell_id2-1].addCoef(grad_v_star[cell_id2-1].size, cell_id1, -alpha_12 * face_normal.x() / v2, -alpha_12 * face_normal.y() / v2);
+               grad_p[cell_id2-1].addCoef(     grad_p[cell_id2-1].size, cell_id1, -alpha_12 * face_normal.x() / v2, -alpha_12 * face_normal.y() / v2);
         }
       }
       break;
@@ -199,10 +210,12 @@ int main(int argc, char **argv)
 
   PetscScalar * bb_ustar;
   PetscScalar * bb_vstar;
+  PetscScalar * bb_p;
   PetscScalar * uu;
   PetscScalar * vv;
   VecGetArray(b_USTAR, &bb_ustar);
   VecGetArray(b_VSTAR, &bb_vstar);
+  VecGetArray(b_p, &bb_p);
   VecGetArray(u, &uu);
   VecGetArray(v, &vv);
 
@@ -240,11 +253,23 @@ int main(int argc, char **argv)
           PetscInt col[1]; col[0] = row;
           double val[1];
           val[0] = VISC * face->area() / distance;
-          MatSetValues(M_USTAR_FIXED, 1, &row, 1, col, val, ADD_VALUES);
-          MatSetValues(M_VSTAR_FIXED, 1, &row, 1, col, val, ADD_VALUES);
 
-          bb_ustar[row] += VISC * face->area() / distance * U_BC[zone];
-          bb_vstar[row] += VISC * face->area() / distance * V_BC[zone];
+          if (has_U_BC[zone])
+          {
+            MatSetValues(M_USTAR_FIXED, 1, &row, 1, col, val, ADD_VALUES);
+            bb_ustar[row] += VISC * face->area() / distance * U_BC[zone];
+          }
+          if (has_V_BC[zone])
+          {
+            MatSetValues(M_VSTAR_FIXED, 1, &row, 1, col, val, ADD_VALUES);
+            bb_vstar[row] += VISC * face->area() / distance * V_BC[zone];
+          }
+          if (has_p_BC[zone])
+          {
+            val[0] = -face->area() / distance;
+            MatSetValues(M_P, 1, &row, 1, col, val, ADD_VALUES);
+            bb_p[row]     -= face->area() / distance * p_BC[zone];
+          }
         }
       }
       break;
@@ -325,6 +350,9 @@ int main(int argc, char **argv)
           for (int i = 0; i < size1+1; i++) { val1[i] /= VISC; nval1[i] = -val1[i]; }
           MatSetValues(M_P, 1, &r1, size1+1, col1, nval1, ADD_VALUES); // cell 1 off-diag
           MatSetValues(M_P, 1, &r2, size1+1, col1, val1, ADD_VALUES); // cell 2 off-diag
+          bc_contribution = -area_f * alpha_12 * (grad_p[cell_id1-1].bc_x * n2.x() + grad_p[cell_id1-1].bc_y * n2.y());
+          bb_p[r1] += bc_contribution;
+          bb_p[r2] -= bc_contribution;
 
           int size2 = grad_u_star[cell_id2-1].size;
           if (size2 > 3) {std::cerr<<"size2 > 3\n"; exit(1);}
@@ -351,6 +379,9 @@ int main(int argc, char **argv)
           for (int i = 0; i < size2+1; i++) { val2[i] /= VISC; nval2[i] = -val2[i]; }
           MatSetValues(M_P, 1, &r1, size2+1, col2, nval2, ADD_VALUES);
           MatSetValues(M_P, 1, &r2, size2+1, col2, val2, ADD_VALUES);
+          bc_contribution = -area_f * alpha_21 * (grad_p[cell_id2-1].bc_x * n2.x() + grad_p[cell_id2-1].bc_y * n2.y());
+          bb_p[r1] += bc_contribution;
+          bb_p[r2] -= bc_contribution;
         }
       }
       break;
@@ -391,6 +422,7 @@ int main(int argc, char **argv)
 
   VecRestoreArray(b_USTAR, &bb_ustar);
   VecRestoreArray(b_VSTAR, &bb_vstar);
+  VecRestoreArray(b_p, &bb_p);
   VecRestoreArray(u, &uu);
   VecRestoreArray(v, &vv);
   // std::cout << "KSP START" << std::endl;
@@ -435,7 +467,7 @@ int main(int argc, char **argv)
 
       // update F_face_star from solved pressure
       VecCopy(F_face_star, F_face_star_old_it);
-      updateFfaceStar(app.p_mesh, F_face_star, F_0f_star, p, grad_u_star);
+      updateFfaceStar(app.p_mesh, F_face_star, F_0f_star, p, grad_p);
       VecAXPY(F_face_star_old_it, -1.0, F_face_star); // now F_face_star_old_it is F_face_star - F_face_star_old_it
       PetscScalar error_norm;
       VecNorm(F_face_star_old_it, NORM_2, &error_norm);

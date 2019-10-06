@@ -185,7 +185,7 @@ void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec 
   VecRestoreArray(b_p, &bb_p);
 }
 
-void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Vec p, GRAD * grad_u_star)
+void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Vec p, GRAD * grad_p)
 {
   PetscScalar * ff;
   PetscScalar * pp;
@@ -239,26 +239,28 @@ void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Ve
 
           //std::cout << "->Cell 1" << std::endl;
           double grad_p_dot_n2_cell1 = 0.0;
-          int size1 = grad_u_star[cell_id1-1].size;
+          int size1 = grad_p[cell_id1-1].size;
           if (size1 > 3) {std::cerr<<"size1 > 3\n"; exit(1);}
           for (int i = 0; i < size1+1; i++)
           {
-            long int cell_id_i = grad_u_star[cell_id1-1].cell_id[i]-1;
+            long int cell_id_i = grad_p[cell_id1-1].cell_id[i]-1;
             double pi = pp[cell_id_i];
-            grad_p_dot_n2_cell1 += (grad_u_star[cell_id1-1].coef_x[i] * n2.x() + grad_u_star[cell_id1-1].coef_y[i] * n2.y()) * pi;
+            grad_p_dot_n2_cell1 += (grad_p[cell_id1-1].coef_x[i] * n2.x() + grad_p[cell_id1-1].coef_y[i] * n2.y()) * pi;
           }
+          grad_p_dot_n2_cell1 += grad_p[cell_id1-1].bc_x * n2.x() + grad_p[cell_id1-1].bc_y * n2.y();
           grad_p_dot_n2_cell1 *= alpha_12;
 
           //std::cout << "->Cell 2" << std::endl;
           double grad_p_dot_n2_cell2 = 0.0;
-          int size2 = grad_u_star[cell_id2-1].size;
+          int size2 = grad_p[cell_id2-1].size;
           if (size2 > 3) {std::cerr<<"size2 > 3\n"; exit(1);}
           for (int i = 0; i < size2+1; i++)
           {
-            long int cell_id_i = grad_u_star[cell_id2-1].cell_id[i]-1;
+            long int cell_id_i = grad_p[cell_id2-1].cell_id[i]-1;
             double pi = pp[cell_id_i];
-            grad_p_dot_n2_cell2 += (grad_u_star[cell_id2-1].coef_x[i] * n2.x() + grad_u_star[cell_id2-1].coef_y[i] * n2.y()) * pi;
+            grad_p_dot_n2_cell2 += (grad_p[cell_id2-1].coef_x[i] * n2.x() + grad_p[cell_id2-1].coef_y[i] * n2.y()) * pi;
           }
+          grad_p_dot_n2_cell2 += grad_p[cell_id2-1].bc_x * n2.x() + grad_p[cell_id2-1].bc_y * n2.y();
           grad_p_dot_n2_cell2 *= alpha_21;
 
           double pressure_correction = (pp[cell_id2-1] - pp[cell_id1-1]) / distance + grad_p_dot_n2_cell1 + grad_p_dot_n2_cell2;
@@ -306,7 +308,13 @@ void updatePressureGradientAsSource(FluentTwoDMesh * p_mesh, Vec p, Vec p_src_x,
           Face * face = (it->second)[j];
           long int cell_id1 = face->cell_id1();
           Vec3d face_normal = face->faceNormal();
-          double p_face = pp[cell_id1-1];
+          //double p_face = pp[cell_id1-1];
+          double p_face = 0.0;
+
+          if (has_p_BC[zone])
+            p_face = p_BC[zone];
+          else
+            p_face = pp[cell_id1-1]; // assuming dp/dn = 0
 
           pp_src_x[cell_id1-1] -= p_face * face_normal.x();
           pp_src_y[cell_id1-1] -= p_face * face_normal.y();
