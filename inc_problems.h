@@ -5,12 +5,14 @@
 #include <map>
 
 /* Setup B.C. */
-static std::map<int, bool> has_U_BC;
-static std::map<int, bool> has_V_BC;
-static std::map<int, bool> has_p_BC;
-static std::map<int, double> U_BC;
-static std::map<int, double> V_BC;
-static std::map<int, double> p_BC;
+//static std::map<int, bool> has_U_BC = {{1, true}, {2, true}, {3, false}, {4, true}, {5, true}};
+static std::map<int, bool> has_U_BC = {{1, true}, {2, false}, {3, false}, {4, false}, {5, true}};
+static std::map<int, bool> has_V_BC = {{1, true}, {2, true}, {3, false}, {4, true}, {5, true}};
+static std::map<int, bool> has_p_BC = {{1, false}, {2, false}, {3, true}, {4, false}, {5, false}};
+//static std::map<int, double> U_BC = {{1, 1.0}, {2, 0.0}, {4, 0.0}, {5, 0.0}};
+static std::map<int, double> U_BC = {{1, 1.0}, {5, 0.0}};
+static std::map<int, double> V_BC = {{1, 0.0}, {2, 0.0}, {4, 0.0}, {5, 0.0}};
+static std::map<int, double> p_BC = {{3, 0.0}};
 /*
 has_U_BC[2] = true; has_U_BC[3] = true; has_U_BC[4] = true; has_U_BC[5] = true;
 has_V_BC[2] = true; has_V_BC[3] = true; has_V_BC[4] = true; has_V_BC[5] = true;
@@ -21,7 +23,7 @@ p_BC[2] = -1e6; p_BC[3] = -1e6; p_BC[4] = -1e6; p_BC[5] = -1e6;*/
 /* End of B.C. setting */
 
 static double DT = 0.05;
-static double VISC = 0.01;
+static double VISC = 0.001;
 
 class StreamFunctionNode
 {
@@ -46,9 +48,9 @@ protected:
 };
 
 struct GRAD;
-void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Mat M_USTAR, Mat M_VSTAR);
+void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec u_STAR, Vec v_STAR, Vec b_USTAR, Vec b_VSTAR, Mat M_USTAR, Mat M_VSTAR);
 void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec F_0f_star, Vec b_p);
-void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Vec p, GRAD * grad_u_star);
+void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Vec p, Vec u_STAR, Vec v_STAR, GRAD * grad_u_star);
 void updatePressureGradientAsSource(FluentTwoDMesh * p_mesh, Vec p, Vec p_src_x, Vec p_src_y);
 
 struct GRAD

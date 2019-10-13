@@ -6,7 +6,7 @@
 # do diff for each case
 #temp=$(diff output/FluentTwoDMesh.vtu expected/FluentTwoDMesh.vtu)
 #temp=$(diff output/U_STAR.vtu expected/U_STAR.vtu)
-temp=$(diff output/output_19.vtu expected/output_19.vtu)
+temp=$(diff output/output_19.vtu expected/output_19_cylinder.vtu)
 error=$?
 if [ $error -eq 0 ]
 then

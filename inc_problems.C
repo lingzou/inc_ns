@@ -34,10 +34,16 @@ StreamFunctionNode::computeStreamFunction(double value)
   }
 }
 
-void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Mat M_USTAR, Mat M_VSTAR)
+void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec u_STAR, Vec v_STAR, Vec b_USTAR, Vec b_VSTAR, Mat M_USTAR, Mat M_VSTAR)
 {
   PetscScalar * ff;
+  PetscScalar * bb_ustar, * bb_vstar;
+  PetscScalar * uu_star, * vv_star;
   VecGetArray(F_face_star, &ff);
+  VecGetArray(b_USTAR, &bb_ustar);
+  VecGetArray(b_VSTAR, &bb_vstar);
+  VecGetArray(u_STAR, &uu_star);
+  VecGetArray(v_STAR, &vv_star);
 
   std::vector<FluentTriCell> & cell_set = p_mesh->getCellSet();
   std::map<int, std::vector<Face*> > & face_zone_map = p_mesh->getFaceZoneMap();
@@ -46,12 +52,41 @@ void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Mat M_UST
     int zone = it->first;
     switch (zone)
     {
+      case 1:
       case 5:
       case 2:
       case 3:
       case 4:
       {
-        // Nothing to do, F_face on all boundaries are zero
+        for (unsigned int j = 0; j < (it->second).size(); j++)
+        {
+          Face * face = (it->second).at(j);
+          long int cell_id1 = face->cell_id1();
+          Vec3d face_normal = face->faceNormal();
+          double u_face = has_U_BC[zone] ? U_BC[zone] : uu_star[cell_id1-1];
+          double v_face = has_V_BC[zone] ? V_BC[zone] : vv_star[cell_id1-1];
+          double fface = u_face * face_normal.x() + v_face * face_normal.y();
+
+          if (has_U_BC[zone])
+            bb_ustar[cell_id1-1] -= fface * u_face;
+          else
+          {
+            PetscInt col[1]; double val[1];
+            PetscInt r1 = cell_id1 - 1;
+            val[0] = fface; col[0] = r1;
+            MatSetValues(M_USTAR, 1, &r1, 1, col, val, ADD_VALUES);
+          }
+
+          if (has_V_BC[zone])
+            bb_vstar[cell_id1-1] -= fface * v_face;
+          else
+          {
+            PetscInt col[1]; double val[1];
+            PetscInt r1 = cell_id1 - 1;
+            val[0] = fface; col[0] = r1;
+            MatSetValues(M_VSTAR, 1, &r1, 1, col, val, ADD_VALUES);
+          }
+        }
       }
       break;
 
@@ -113,6 +148,10 @@ void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Mat M_UST
     }
   }
   VecRestoreArray(F_face_star, &ff);
+  VecRestoreArray(b_USTAR, &bb_ustar);
+  VecRestoreArray(b_VSTAR, &bb_vstar);
+  VecRestoreArray(u_STAR, &uu_star);
+  VecRestoreArray(v_STAR, &vv_star);
 
   MatAssemblyBegin(M_USTAR, MAT_FINAL_ASSEMBLY);
   MatAssemblyEnd(M_USTAR, MAT_FINAL_ASSEMBLY);
@@ -123,7 +162,7 @@ void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Mat M_UST
 void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec F_0f_star, Vec b_p)
 {
   // zero out b_p first
-  VecSet(b_p, 0.0);
+  // VecSet(b_p, 0.0);
   // Update "mass velocity" flux F_0f_star
   PetscScalar * f0f;
   PetscScalar * uu_star;
@@ -140,11 +179,24 @@ void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec 
     int zone = it->first;
     switch (zone)
     {
+      case 1:
       case 5:
       case 2:
       case 3:
       case 4:
       { // Nothing to do, F_face on all boundaries are zero
+        for (unsigned int j = 0; j < (it->second).size(); j++)
+        {
+          Face * face = (it->second).at(j);
+          long int cell_id1 = face->cell_id1();
+          Vec3d face_normal = face->faceNormal();
+          double u_face = has_U_BC[zone] ? U_BC[zone] : uu_star[cell_id1-1];
+          double v_face = has_V_BC[zone] ? V_BC[zone] : vv_star[cell_id1-1];
+          double fface = u_face * face_normal.x() + v_face * face_normal.y();
+
+          f0f[face->id()] = fface;
+          bb_p[cell_id1-1] += fface / DT;
+        }
       }
       break;
 
@@ -177,7 +229,7 @@ void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec 
     }
 
     // anchor point
-    bb_p[0] = 0.0;
+    //bb_p[0] = 0.0;
   }
   VecRestoreArray(F_0f_star, &f0f);
   VecRestoreArray(u_STAR, &uu_star);
@@ -185,13 +237,17 @@ void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec 
   VecRestoreArray(b_p, &bb_p);
 }
 
-void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Vec p, GRAD * grad_p)
+void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Vec p, Vec u_STAR, Vec v_STAR, GRAD * grad_p)
 {
   PetscScalar * ff;
   PetscScalar * pp;
   PetscScalar * f0f;
+  PetscScalar * uu_star;
+  PetscScalar * vv_star;
   VecGetArray(F_face_star, &ff);
   VecGetArray(F_0f_star, &f0f);
+  VecGetArray(u_STAR, &uu_star);
+  VecGetArray(v_STAR, &vv_star);
   VecGetArray(p, &pp);
 
   std::vector<FluentTriCell> & cell_set = p_mesh->getCellSet();
@@ -201,12 +257,34 @@ void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Ve
     int zone = it->first;
     switch (zone)
     {
+      case 1:
       case 5:
       case 2:
       case 3:
       case 4:
       {
         // Nothing to do, F_face on all boundaries are zero
+        for (unsigned int j = 0; j < (it->second).size(); j++)
+        {
+          Face * face = (it->second).at(j);
+          long int cell_id1 = face->cell_id1();
+          Vec3d face_normal = face->faceNormal();
+          double u_face = has_U_BC[zone] ? U_BC[zone] : uu_star[cell_id1-1];
+          double v_face = has_V_BC[zone] ? V_BC[zone] : vv_star[cell_id1-1];
+          double fface = u_face * face_normal.x() + v_face * face_normal.y();
+
+          ff[face->id()] = fface;
+/*
+          if (zone == 1)
+          {
+            face_normal.print();
+            std::cout << "u_face = " << u_face << std::endl;
+            std::cout << "v_face = " << v_face << std::endl;
+            if (has_U_BC[zone])
+              std::cout << "U_BC[zone] = " << U_BC[zone] << std::endl;
+            std::cout << "j = " << j << ". ff = " << fface << std::endl;
+          }*/
+        }
       }
       break;
 
@@ -278,6 +356,8 @@ void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Ve
   //std::cout << "End loop: before restore vec" << std::endl;
   VecRestoreArray(F_face_star, &ff);
   VecRestoreArray(F_0f_star, &f0f);
+  VecRestoreArray(u_STAR, &uu_star);
+  VecRestoreArray(v_STAR, &vv_star);
   VecRestoreArray(p, &pp);
   //std::cout << "End loop" << std::endl;
 }
@@ -298,6 +378,7 @@ void updatePressureGradientAsSource(FluentTwoDMesh * p_mesh, Vec p, Vec p_src_x,
     //std::cout << "zone = " << zone << std::endl;
     switch (zone)
     {
+      case 1:
       case 5: // TOP
       case 2: // RIGHT
       case 3: // BOTTOM

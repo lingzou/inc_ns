@@ -26,7 +26,8 @@ int main(int argc, char **argv)
   PETSC_APPCTX app;
 
   app.p_mesh = new FluentTwoDMesh();
-  app.p_mesh->createMeshFromFile("cavity.msh", false, true);
+  //app.p_mesh->createMeshFromFile("cavity.msh", false, true);
+  app.p_mesh->createMeshFromFile("flow-past-a-cylinder.msh", false, true);
   std::cout << "# of faces: " << app.p_mesh->n_Faces() << std::endl;
 
   std::vector<Node*> & node_set = app.p_mesh->getNodeSet();
@@ -47,13 +48,20 @@ int main(int argc, char **argv)
 
   long int n_Cell = app.p_mesh->n_Cells();
   long int n_Face = app.p_mesh->n_Faces();
-
+/*
   has_U_BC[2] = true; has_U_BC[3] = true; has_U_BC[4] = true; has_U_BC[5] = true;
   has_V_BC[2] = true; has_V_BC[3] = true; has_V_BC[4] = true; has_V_BC[5] = true;
   has_p_BC[2] = false; has_p_BC[3] = false; has_p_BC[4] = false; has_p_BC[5] = false;
   U_BC[2] = 0.0; U_BC[3] = 0.0; U_BC[4] = 0.0; U_BC[5] = 1.0;
   V_BC[2] = 0.0; V_BC[3] = 0.0; V_BC[4] = 0.0; V_BC[5] = 0.0;
   p_BC[2] = -1e6; p_BC[3] = -1e6; p_BC[4] = -1e6; p_BC[5] = -1e6;
+*/
+//  has_U_BC[1] = true;  has_U_BC[2] = true;  has_U_BC[3] = false; has_U_BC[4] = true; has_U_BC[5] = true;
+//  has_V_BC[1] = true;  has_V_BC[2] = true;  has_V_BC[3] = false; has_V_BC[4] = true;  has_V_BC[5] = true;
+//  has_p_BC[1] = false; has_p_BC[2] = false; has_p_BC[3] = true;  has_p_BC[4] = false; has_p_BC[5] = false;
+//  U_BC[1] = 1.0; U_BC[2] = 0.0; U_BC[4] = 0.0; U_BC[5] = 0.0;
+//  V_BC[1] = 0.0; V_BC[2] = 0.0; V_BC[4] = 0.0; V_BC[5] = 0.0;
+//  p_BC[3] = 0.0;
 
   // --->
   std::cout << "GRAD START" << std::endl;
@@ -66,6 +74,7 @@ int main(int argc, char **argv)
     std::cout << "zone = " << zone << std::endl;
     switch (zone)
     {
+      case 1:
       case 2: // RIGHT
       case 3: // BOTTOM
       case 4: // LEFT
@@ -80,10 +89,21 @@ int main(int argc, char **argv)
 
           if (has_U_BC[zone])
             grad_u_star[cell_id1-1].addBCContribution(U_BC[zone] * face_normal.x() / v1, U_BC[zone] * face_normal.y() / v1);
+          else
+          {
+            // u face = u cell
+            grad_u_star[cell_id1-1].addCoef(0, cell_id1, face_normal.x() / v1, face_normal.y() / v1);
+          }
           if (has_V_BC[zone])
             grad_v_star[cell_id1-1].addBCContribution(V_BC[zone] * face_normal.x() / v1, V_BC[zone] * face_normal.y() / v1);
+          else
+          {
+            grad_v_star[cell_id1-1].addCoef(0, cell_id1, face_normal.x() / v1, face_normal.y() / v1);
+          }
           if (has_p_BC[zone])
             grad_p[cell_id1-1].addBCContribution(p_BC[zone] * face_normal.x() / v1, p_BC[zone] * face_normal.y() / v1);
+          else
+            grad_p[cell_id1-1].addCoef(0, cell_id1, face_normal.x() / v1, face_normal.y() / v1);
         }
       }
       break;
@@ -141,9 +161,9 @@ int main(int argc, char **argv)
   Mat       M_USTAR_FIXED, M_VSTAR_FIXED;
   Mat       M_USTAR, M_VSTAR;
   Mat       M_P;
-  Vec       u, u_STAR, b_USTAR;
-  Vec       v, v_STAR, b_VSTAR;
-  Vec       p, b_p, p_old_it;
+  Vec       u, u_STAR, b_USTAR, b_USTAR_FINAL;
+  Vec       v, v_STAR, b_VSTAR, b_VSTAR_FINAL;
+  Vec       p, b_p, p_old_it, b_p_FINAL;
   Vec       F_face_star, F_0f_star, F_face_star_old_it;
   KSP       ksp_USTAR, ksp_VSTAR, ksp_P;
 
@@ -157,23 +177,29 @@ int main(int argc, char **argv)
   VecDuplicate(u_STAR, &b_USTAR);
   VecDuplicate(u_STAR, &v_STAR);
   VecDuplicate(u_STAR, &b_VSTAR);
+  VecDuplicate(u_STAR, &b_USTAR_FINAL);
+  VecDuplicate(u_STAR, &b_VSTAR_FINAL);
   VecDuplicate(u_STAR, &u);
   VecDuplicate(u_STAR, &v);
   VecDuplicate(u_STAR, &p);
   VecDuplicate(u_STAR, &b_p);
+  VecDuplicate(u_STAR, &b_p_FINAL);
   VecDuplicate(u_STAR, &p_old_it);
 
   VecDuplicate(u_STAR, &p_src_x);
   VecDuplicate(u_STAR, &p_src_y);
 
-  VecSet(u_STAR, 0.0);
+  VecSet(u_STAR, 1.0);
   VecSet(v_STAR, 0.0);
   VecSet(b_USTAR, 0.0);
   VecSet(b_VSTAR, 0.0);
-  VecSet(u, 0.0);
+  VecSet(b_USTAR_FINAL, 0.0);
+  VecSet(b_VSTAR_FINAL, 0.0);
+  VecSet(u, 1.0);
   VecSet(v, 0.0);
   VecSet(p, 0.0);
   VecSet(b_p, 0.0);
+  VecSet(b_p_FINAL, 0.0);
   VecSet(p_old_it, 0.0);
 
   VecSet(p_src_x, 0.0);
@@ -211,13 +237,15 @@ int main(int argc, char **argv)
   PetscScalar * bb_ustar;
   PetscScalar * bb_vstar;
   PetscScalar * bb_p;
-  PetscScalar * uu;
-  PetscScalar * vv;
+  PetscScalar * uu; //, * uu_star;
+  PetscScalar * vv; //, * vv_star;
   VecGetArray(b_USTAR, &bb_ustar);
   VecGetArray(b_VSTAR, &bb_vstar);
   VecGetArray(b_p, &bb_p);
   VecGetArray(u, &uu);
   VecGetArray(v, &vv);
+  //VecGetArray(u_STAR, &uu_star);
+  //VecGetArray(v_STAR, &vv_star);
 
   // Diffusion terms
   for (std::map<int, std::vector<Face*> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
@@ -226,6 +254,7 @@ int main(int argc, char **argv)
     int zone = it->first;
     switch (zone)
     {
+      case 1:
       case 5:
       case 2:
       case 3:
@@ -341,15 +370,31 @@ int main(int argc, char **argv)
           bb_ustar[r1] += bc_contribution;
           bb_ustar[r2] -= bc_contribution;
           // copy & paste for VSTAR
+          if (grad_v_star[cell_id1-1].size != size1) {std::cerr<<"size != size1\n"; exit(1);}
+          for (int i = 0; i < size1+1; i++)
+          {
+            col1[i] = grad_v_star[cell_id1-1].cell_id[i]-1;
+            val1[i] = -grad_v_star[cell_id1-1].coef_x[i] * n2.x() - grad_v_star[cell_id1-1].coef_y[i] * n2.y();
+            val1[i] *= (VISC * area_f * alpha_12);
+            nval1[i] = -val1[i];
+          }
           MatSetValues(M_VSTAR_FIXED, 1, &r1, size1+1, col1, val1, ADD_VALUES); // cell 1 off-diag
           MatSetValues(M_VSTAR_FIXED, 1, &r2, size1+1, col1, nval1, ADD_VALUES); // cell 2 off-diag
           bc_contribution = VISC * area_f * alpha_12 * (grad_v_star[cell_id1-1].bc_x * n2.x() + grad_v_star[cell_id1-1].bc_y * n2.y());
           bb_vstar[r1] += bc_contribution;
           bb_vstar[r2] -= bc_contribution;
           // (-1.0) MP
-          for (int i = 0; i < size1+1; i++) { val1[i] /= VISC; nval1[i] = -val1[i]; }
-          MatSetValues(M_P, 1, &r1, size1+1, col1, nval1, ADD_VALUES); // cell 1 off-diag
-          MatSetValues(M_P, 1, &r2, size1+1, col1, val1, ADD_VALUES); // cell 2 off-diag
+          if (grad_p[cell_id1-1].size != size1) {std::cerr<<"size != size1\n"; exit(1);}
+          //for (int i = 0; i < size1+1; i++) { val1[i] /= VISC; nval1[i] = -val1[i]; }
+          for (int i = 0; i < size1+1; i++)
+          {
+            col1[i] = grad_p[cell_id1-1].cell_id[i]-1;
+            val1[i] = grad_p[cell_id1-1].coef_x[i] * n2.x() + grad_p[cell_id1-1].coef_y[i] * n2.y();
+            val1[i] *= (area_f * alpha_12);
+            nval1[i] = -val1[i];
+          }
+          MatSetValues(M_P, 1, &r1, size1+1, col1, val1, ADD_VALUES); // cell 1 off-diag
+          MatSetValues(M_P, 1, &r2, size1+1, col1, nval1, ADD_VALUES); // cell 2 off-diag
           bc_contribution = -area_f * alpha_12 * (grad_p[cell_id1-1].bc_x * n2.x() + grad_p[cell_id1-1].bc_y * n2.y());
           bb_p[r1] += bc_contribution;
           bb_p[r2] -= bc_contribution;
@@ -370,15 +415,31 @@ int main(int argc, char **argv)
           bb_ustar[r1] += bc_contribution;
           bb_ustar[r2] -= bc_contribution;
           // copy & paste for VSTAR
+          if (grad_v_star[cell_id2-1].size != size2) {std::cerr<<"size != size2\n"; exit(1);}
+          for (int i = 0; i < size2+1; i++)
+          {
+            col2[i] = grad_v_star[cell_id2-1].cell_id[i]-1;
+            val2[i] = -grad_v_star[cell_id2-1].coef_x[i] * n2.x() - grad_v_star[cell_id2-1].coef_y[i] * n2.y();
+            val2[i] *= (VISC * area_f * alpha_21);
+            nval2[i] = -val2[i];
+          }
           MatSetValues(M_VSTAR_FIXED, 1, &r1, size2+1, col2, val2, ADD_VALUES);
           MatSetValues(M_VSTAR_FIXED, 1, &r2, size2+1, col2, nval2, ADD_VALUES);
           bc_contribution = VISC * area_f * alpha_21 * (grad_v_star[cell_id2-1].bc_x * n2.x() + grad_v_star[cell_id2-1].bc_y * n2.y());
           bb_vstar[r1] += bc_contribution;
           bb_vstar[r2] -= bc_contribution;
           // (-1.0) MP
-          for (int i = 0; i < size2+1; i++) { val2[i] /= VISC; nval2[i] = -val2[i]; }
-          MatSetValues(M_P, 1, &r1, size2+1, col2, nval2, ADD_VALUES);
-          MatSetValues(M_P, 1, &r2, size2+1, col2, val2, ADD_VALUES);
+          if (grad_p[cell_id2-1].size != size2) {std::cerr<<"size != size2\n"; exit(1);}
+          for (int i = 0; i < size2+1; i++)
+          {
+            col2[i] = grad_p[cell_id2-1].cell_id[i]-1;
+            val2[i] = grad_p[cell_id2-1].coef_x[i] * n2.x() + grad_p[cell_id2-1].coef_y[i] * n2.y();
+            val2[i] *= (area_f * alpha_21);
+            nval2[i] = -val2[i];
+          }
+          //for (int i = 0; i < size2+1; i++) { val2[i] /= VISC; nval2[i] = -val2[i]; }
+          MatSetValues(M_P, 1, &r1, size2+1, col2, val2, ADD_VALUES);
+          MatSetValues(M_P, 1, &r2, size2+1, col2, nval2, ADD_VALUES);
           bc_contribution = -area_f * alpha_21 * (grad_p[cell_id2-1].bc_x * n2.x() + grad_p[cell_id2-1].bc_y * n2.y());
           bb_p[r1] += bc_contribution;
           bb_p[r2] -= bc_contribution;
@@ -408,6 +469,39 @@ int main(int argc, char **argv)
     bb_vstar[row] += vv[row] * RHO * it->volume() / DT;
     /* This function has been checked; 09/02/2019, 1:38PM */
   }
+  /*
+  // u_star v_star contribution from BC
+  for (std::map<int, std::vector<Face*> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
+  {
+    int zone = it->first;
+    switch (zone)
+    {
+      case 1:
+      case 5:
+      case 2:
+      case 3:
+      case 4:
+      { // Nothing to do, F_face on all boundaries are zero
+        for (unsigned int j = 0; j < (it->second).size(); j++)
+        {
+          Face * face = (it->second).at(j);
+          long int cell_id1 = face->cell_id1();
+          Vec3d face_normal = face->faceNormal();
+          double u_face = has_U_BC[zone] ? U_BC[zone] : uu_star[cell_id1-1];
+          double v_face = has_V_BC[zone] ? V_BC[zone] : vv_star[cell_id1-1];
+          double fface = u_face * face_normal.x() + v_face * face_normal.y();
+
+          bb_ustar[cell_id1-1] -= fface * u_face;
+          bb_vstar[cell_id1-1] -= fface * v_face;
+        }
+      }
+      break;
+
+      default:
+        // nothing
+        break;
+    }
+  }*/
 
   MatAssemblyBegin(M_USTAR_FIXED, MAT_FINAL_ASSEMBLY);
   MatAssemblyEnd(M_USTAR_FIXED, MAT_FINAL_ASSEMBLY);
@@ -417,14 +511,16 @@ int main(int argc, char **argv)
 
   MatAssemblyBegin(M_P, MAT_FINAL_ASSEMBLY);
   MatAssemblyEnd(M_P, MAT_FINAL_ASSEMBLY);
-  PetscInt row[1]; row[0] = 0; // anchor p[0] = 0.0
-  MatZeroRows(M_P, 1, row, 1.0, PETSC_NULL, PETSC_NULL);
+  //PetscInt row[1]; row[0] = 0; // anchor p[0] = 0.0
+  //MatZeroRows(M_P, 1, row, 1.0, PETSC_NULL, PETSC_NULL);
 
   VecRestoreArray(b_USTAR, &bb_ustar);
   VecRestoreArray(b_VSTAR, &bb_vstar);
   VecRestoreArray(b_p, &bb_p);
   VecRestoreArray(u, &uu);
   VecRestoreArray(v, &vv);
+  //VecRestoreArray(u_STAR, &uu_star);
+  //VecRestoreArray(v_STAR, &vv_star);
   // std::cout << "KSP START" << std::endl;
 
   unsigned int N_TIMESTEP = 20;
@@ -433,30 +529,36 @@ int main(int argc, char **argv)
     // Begin of time step
     // Perform u_star/v_star -> F_0f -> P -> F_f iteration to get a converged F_f (as well as P)
     std::cout << "Time Step " << time_step << " begin >>>>>>>>>" << std::endl;
-    int N_it_max = 20;
+    int N_it_max = 100;
     for (int i = 0; i < N_it_max; i++)
     {
       MatDuplicate(M_USTAR_FIXED, MAT_COPY_VALUES, &M_USTAR);
       MatDuplicate(M_VSTAR_FIXED, MAT_COPY_VALUES, &M_VSTAR);
 
       // update advection operator to solve u_star and v_star
-      updateAdvectionOperator(app.p_mesh, F_face_star, M_USTAR, M_VSTAR);
+      VecCopy(b_USTAR, b_USTAR_FINAL);
+      VecCopy(b_VSTAR, b_VSTAR_FINAL);
+      updateAdvectionOperator(app.p_mesh, F_face_star, u_STAR, v_STAR, b_USTAR_FINAL, b_VSTAR_FINAL, M_USTAR, M_VSTAR);
 
       KSPSetOperators(ksp_USTAR, M_USTAR, M_USTAR);
       KSPSetFromOptions(ksp_USTAR);
       KSPSetOperators(ksp_VSTAR, M_VSTAR, M_VSTAR);
       KSPSetFromOptions(ksp_VSTAR);
-      KSPSolve(ksp_USTAR, b_USTAR, u_STAR);
-      KSPSolve(ksp_VSTAR, b_VSTAR, v_STAR);
+      //std::cout << "Solving u_STAR" << std::endl;
+      KSPSolve(ksp_USTAR, b_USTAR_FINAL, u_STAR);
+      //std::cout << "Solving v_STAR" << std::endl;
+      KSPSolve(ksp_VSTAR, b_VSTAR_FINAL, v_STAR);
 
       // Update "mass velocity" flux F_0f_star, after u_star and v_star are solved
-      updateMassVeclocities(app.p_mesh, u_STAR, v_STAR, F_0f_star, b_p);
+      VecCopy(b_p, b_p_FINAL);
+      updateMassVeclocities(app.p_mesh, u_STAR, v_STAR, F_0f_star, b_p_FINAL);
 
       // Solve pressure equation
       KSPSetOperators(ksp_P, M_P, M_P);
       KSPSetFromOptions(ksp_P);
       //VecCopy(p, p_old_it);
-      KSPSolve(ksp_P, b_p, p);
+      //std::cout << "Solving p" << std::endl;
+      KSPSolve(ksp_P, b_p_FINAL, p);
       /*
       VecAXPY(p_old_it, -1.0, p); // now p_old_it is p - p_old_it
       PetscScalar error_norm, error_inf;
@@ -467,7 +569,7 @@ int main(int argc, char **argv)
 
       // update F_face_star from solved pressure
       VecCopy(F_face_star, F_face_star_old_it);
-      updateFfaceStar(app.p_mesh, F_face_star, F_0f_star, p, grad_p);
+      updateFfaceStar(app.p_mesh, F_face_star, F_0f_star, p, u_STAR, v_STAR, grad_p);
       VecAXPY(F_face_star_old_it, -1.0, F_face_star); // now F_face_star_old_it is F_face_star - F_face_star_old_it
       PetscScalar error_norm;
       VecNorm(F_face_star_old_it, NORM_2, &error_norm);
@@ -475,6 +577,7 @@ int main(int argc, char **argv)
       //std::cout << "F error_norm = " << error_norm << std::endl;
       //std::cout << "F error_inf = " << error_inf << std::endl;
 
+      //std::cout << "it = " << i << ": L2 error = " << error_norm << std::endl;
       if (error_norm < 1.0e-9)
       {
         std::cout << "it = " << i << ": L2 error = " << error_norm << std::endl;
@@ -490,22 +593,26 @@ int main(int argc, char **argv)
     MatDuplicate(M_USTAR_FIXED, MAT_COPY_VALUES, &M_USTAR);
     MatDuplicate(M_VSTAR_FIXED, MAT_COPY_VALUES, &M_VSTAR);
     // update advection operator to solve u_star and v_star
-    updateAdvectionOperator(app.p_mesh, F_face_star, M_USTAR, M_VSTAR);
+    VecCopy(b_USTAR, b_USTAR_FINAL);
+    VecCopy(b_VSTAR, b_VSTAR_FINAL);
+    updateAdvectionOperator(app.p_mesh, F_face_star, u_STAR, v_STAR, b_USTAR_FINAL, b_VSTAR_FINAL, M_USTAR, M_VSTAR);
     // update rhs due to pressure gradient
     updatePressureGradientAsSource(app.p_mesh, p, p_src_x, p_src_y);
-    VecAXPY(b_USTAR, 1.0, p_src_x);
-    VecAXPY(b_VSTAR, 1.0, p_src_y);
+    VecAXPY(b_USTAR_FINAL, 1.0, p_src_x);
+    VecAXPY(b_VSTAR_FINAL, 1.0, p_src_y);
 
     KSPSetOperators(ksp_USTAR, M_USTAR, M_USTAR);
     KSPSetFromOptions(ksp_USTAR);
     KSPSetOperators(ksp_VSTAR, M_VSTAR, M_VSTAR);
     KSPSetFromOptions(ksp_VSTAR);
-    KSPSolve(ksp_USTAR, b_USTAR, u_STAR);  // now u_star is u^(n+1)
-    KSPSolve(ksp_VSTAR, b_VSTAR, v_STAR);  // now v_star is v^(n+1)
+    //std::cout << "Solving u_STAR again" << std::endl;
+    KSPSolve(ksp_USTAR, b_USTAR_FINAL, u_STAR);  // now u_star is u^(n+1)
+    //std::cout << "Solving v_STAR again" << std::endl;
+    KSPSolve(ksp_VSTAR, b_VSTAR_FINAL, v_STAR);  // now v_star is v^(n+1)
 
     // Update rhs of velocity equations, prepare for next time step
-    VecAXPY(b_USTAR, -1.0, p_src_x);
-    VecAXPY(b_VSTAR, -1.0, p_src_y);
+    //VecAXPY(b_USTAR, -1.0, p_src_x);
+    //VecAXPY(b_VSTAR, -1.0, p_src_y);
     PetscScalar * uu_star, * vv_star;
     VecGetArray(b_USTAR, &bb_ustar);  VecGetArray(b_VSTAR, &bb_vstar);
     VecGetArray(u, &uu);  VecGetArray(v, &vv);  VecGetArray(u_STAR, &uu_star);  VecGetArray(v_STAR, &vv_star);
