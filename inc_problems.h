@@ -48,7 +48,7 @@ protected:
 };
 
 struct GRAD;
-void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec u_STAR, Vec v_STAR, Vec b_USTAR, Vec b_VSTAR, Mat M_USTAR, Mat M_VSTAR);
+void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec b_USTAR, Vec b_VSTAR, Mat M_USTAR, Mat M_VSTAR);
 void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec F_0f_star, Vec b_p);
 void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Vec p, Vec u_STAR, Vec v_STAR, GRAD * grad_u_star);
 void updatePressureGradientAsSource(FluentTwoDMesh * p_mesh, Vec p, Vec p_src_x, Vec p_src_y);

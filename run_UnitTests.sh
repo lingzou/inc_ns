@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # run all cases
-"./inc_exec"
+./inc_exec -p cylinder
 
 # do diff for each case
 #temp=$(diff output/FluentTwoDMesh.vtu expected/FluentTwoDMesh.vtu)

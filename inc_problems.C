@@ -34,16 +34,13 @@ StreamFunctionNode::computeStreamFunction(double value)
   }
 }
 
-void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec u_STAR, Vec v_STAR, Vec b_USTAR, Vec b_VSTAR, Mat M_USTAR, Mat M_VSTAR)
+void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec b_USTAR, Vec b_VSTAR, Mat M_USTAR, Mat M_VSTAR)
 {
   PetscScalar * ff;
   PetscScalar * bb_ustar, * bb_vstar;
-  PetscScalar * uu_star, * vv_star;
   VecGetArray(F_face_star, &ff);
   VecGetArray(b_USTAR, &bb_ustar);
   VecGetArray(b_VSTAR, &bb_vstar);
-  VecGetArray(u_STAR, &uu_star);
-  VecGetArray(v_STAR, &vv_star);
 
   std::vector<FluentTriCell> & cell_set = p_mesh->getCellSet();
   std::map<int, std::vector<Face*> > & face_zone_map = p_mesh->getFaceZoneMap();
@@ -62,30 +59,21 @@ void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec u_STA
         {
           Face * face = (it->second).at(j);
           long int cell_id1 = face->cell_id1();
-          Vec3d face_normal = face->faceNormal();
-          double u_face = has_U_BC[zone] ? U_BC[zone] : uu_star[cell_id1-1];
-          double v_face = has_V_BC[zone] ? V_BC[zone] : vv_star[cell_id1-1];
-          double fface = u_face * face_normal.x() + v_face * face_normal.y();
+          double fface = ff[face->id()];
+
+          PetscInt col[1]; double val[1];
+          PetscInt r1 = cell_id1 - 1;
+          val[0] = fface; col[0] = r1;
 
           if (has_U_BC[zone])
-            bb_ustar[cell_id1-1] -= fface * u_face;
+            bb_ustar[cell_id1-1] -= fface * U_BC[zone];
           else
-          {
-            PetscInt col[1]; double val[1];
-            PetscInt r1 = cell_id1 - 1;
-            val[0] = fface; col[0] = r1;
             MatSetValues(M_USTAR, 1, &r1, 1, col, val, ADD_VALUES);
-          }
 
           if (has_V_BC[zone])
-            bb_vstar[cell_id1-1] -= fface * v_face;
+            bb_vstar[cell_id1-1] -= fface * V_BC[zone];
           else
-          {
-            PetscInt col[1]; double val[1];
-            PetscInt r1 = cell_id1 - 1;
-            val[0] = fface; col[0] = r1;
             MatSetValues(M_VSTAR, 1, &r1, 1, col, val, ADD_VALUES);
-          }
         }
       }
       break;
@@ -150,8 +138,6 @@ void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec u_STA
   VecRestoreArray(F_face_star, &ff);
   VecRestoreArray(b_USTAR, &bb_ustar);
   VecRestoreArray(b_VSTAR, &bb_vstar);
-  VecRestoreArray(u_STAR, &uu_star);
-  VecRestoreArray(v_STAR, &vv_star);
 
   MatAssemblyBegin(M_USTAR, MAT_FINAL_ASSEMBLY);
   MatAssemblyEnd(M_USTAR, MAT_FINAL_ASSEMBLY);
@@ -263,27 +249,11 @@ void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Ve
       case 3:
       case 4:
       {
-        // Nothing to do, F_face on all boundaries are zero
         for (unsigned int j = 0; j < (it->second).size(); j++)
         {
+          // Copy from F_0f_star (as boundary conditions have been setup there)
           Face * face = (it->second).at(j);
-          long int cell_id1 = face->cell_id1();
-          Vec3d face_normal = face->faceNormal();
-          double u_face = has_U_BC[zone] ? U_BC[zone] : uu_star[cell_id1-1];
-          double v_face = has_V_BC[zone] ? V_BC[zone] : vv_star[cell_id1-1];
-          double fface = u_face * face_normal.x() + v_face * face_normal.y();
-
-          ff[face->id()] = fface;
-/*
-          if (zone == 1)
-          {
-            face_normal.print();
-            std::cout << "u_face = " << u_face << std::endl;
-            std::cout << "v_face = " << v_face << std::endl;
-            if (has_U_BC[zone])
-              std::cout << "U_BC[zone] = " << U_BC[zone] << std::endl;
-            std::cout << "j = " << j << ". ff = " << fface << std::endl;
-          }*/
+          ff[face->id()] = f0f[face->id()];
         }
       }
       break;
@@ -292,7 +262,6 @@ void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Ve
       {
         for (unsigned int j = 0; j < (it->second).size(); j++)
         {
-          //std::cout << "Face j = " << j << std::endl;
           Face * face = (it->second).at(j);
           long int cell_id1 = face->cell_id1();
           long int cell_id2 = face->cell_id2();

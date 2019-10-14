@@ -3,7 +3,11 @@
 
 #include "inc_problems.h"
 
-
+/*
+ * References:
+ * 1. Amaresh Dalal, V. Eswaran, and G. Biswas, "A Finite-Volume Method for Navier-Stokes Equations on Unstructured Meshes,"
+ *    Numerical Heat Transfer, Part B, 54: 238-259, 2008.
+ */
 
 struct PETSC_APPCTX
 {
@@ -23,11 +27,30 @@ int main(int argc, char **argv)
 {
   PetscInitialize(&argc, &argv, (char *)0, PETSC_NULL);
 
+  char        problem_name[PETSC_MAX_PATH_LEN];   // problem name
+  PetscBool   problem_specified = PETSC_FALSE;    // problem name specified?
+  PetscOptionsGetString(NULL, NULL, "-p", problem_name, sizeof(problem_name), &problem_specified);
+
+  if (!problem_specified)
+  {
+    std::cout << "ERROR: Problem name is not specified." << std::endl;
+    std::cout << "Please specify the problem name using '-p <problem_name>', for example, '-p cavity'." << std::endl;
+    exit(1);
+  }
+
   PETSC_APPCTX app;
 
   app.p_mesh = new FluentTwoDMesh();
-  //app.p_mesh->createMeshFromFile("cavity.msh", false, true);
-  app.p_mesh->createMeshFromFile("flow-past-a-cylinder.msh", false, true);
+  if (strcmp(problem_name, "cavity") == 0)
+    app.p_mesh->createMeshFromFile("cavity.msh", false, true);
+  else if (strcmp(problem_name, "cylinder") == 0)
+    app.p_mesh->createMeshFromFile("flow-past-a-cylinder.msh", false, true);
+  else
+  {
+    std::cout << "I can only do 'cavity' or 'cylinder' problems. Try again." << std::endl;
+    exit(1);
+  }
+
   std::cout << "# of faces: " << app.p_mesh->n_Faces() << std::endl;
 
   std::vector<Node*> & node_set = app.p_mesh->getNodeSet();
@@ -48,20 +71,6 @@ int main(int argc, char **argv)
 
   long int n_Cell = app.p_mesh->n_Cells();
   long int n_Face = app.p_mesh->n_Faces();
-/*
-  has_U_BC[2] = true; has_U_BC[3] = true; has_U_BC[4] = true; has_U_BC[5] = true;
-  has_V_BC[2] = true; has_V_BC[3] = true; has_V_BC[4] = true; has_V_BC[5] = true;
-  has_p_BC[2] = false; has_p_BC[3] = false; has_p_BC[4] = false; has_p_BC[5] = false;
-  U_BC[2] = 0.0; U_BC[3] = 0.0; U_BC[4] = 0.0; U_BC[5] = 1.0;
-  V_BC[2] = 0.0; V_BC[3] = 0.0; V_BC[4] = 0.0; V_BC[5] = 0.0;
-  p_BC[2] = -1e6; p_BC[3] = -1e6; p_BC[4] = -1e6; p_BC[5] = -1e6;
-*/
-//  has_U_BC[1] = true;  has_U_BC[2] = true;  has_U_BC[3] = false; has_U_BC[4] = true; has_U_BC[5] = true;
-//  has_V_BC[1] = true;  has_V_BC[2] = true;  has_V_BC[3] = false; has_V_BC[4] = true;  has_V_BC[5] = true;
-//  has_p_BC[1] = false; has_p_BC[2] = false; has_p_BC[3] = true;  has_p_BC[4] = false; has_p_BC[5] = false;
-//  U_BC[1] = 1.0; U_BC[2] = 0.0; U_BC[4] = 0.0; U_BC[5] = 0.0;
-//  V_BC[1] = 0.0; V_BC[2] = 0.0; V_BC[4] = 0.0; V_BC[5] = 0.0;
-//  p_BC[3] = 0.0;
 
   // --->
   std::cout << "GRAD START" << std::endl;
@@ -87,19 +96,19 @@ int main(int argc, char **argv)
           Vec3d face_normal = face->faceNormal();
           double v1 = cell_set.at(cell_id1-1).volume();
 
+          // \grad phi = 1/v * \Sigma phi_face \vec{A_face}; equation on page 244 of Ref. [1], following equation (10).
+          // If has boundary value, it goes to the BC contribution; otherwise,
+          // we assuming d_phi/dn = 0, such that phi_BC = phi_cell, and this boundary contributes as a cell value
           if (has_U_BC[zone])
             grad_u_star[cell_id1-1].addBCContribution(U_BC[zone] * face_normal.x() / v1, U_BC[zone] * face_normal.y() / v1);
-          else
-          {
-            // u face = u cell
+          else // u face = u cell
             grad_u_star[cell_id1-1].addCoef(0, cell_id1, face_normal.x() / v1, face_normal.y() / v1);
-          }
+
           if (has_V_BC[zone])
             grad_v_star[cell_id1-1].addBCContribution(V_BC[zone] * face_normal.x() / v1, V_BC[zone] * face_normal.y() / v1);
           else
-          {
             grad_v_star[cell_id1-1].addCoef(0, cell_id1, face_normal.x() / v1, face_normal.y() / v1);
-          }
+
           if (has_p_BC[zone])
             grad_p[cell_id1-1].addBCContribution(p_BC[zone] * face_normal.x() / v1, p_BC[zone] * face_normal.y() / v1);
           else
@@ -117,7 +126,9 @@ int main(int argc, char **argv)
           long int cell_id2 = face->cell_id2();
           double v1 = cell_set.at(cell_id1-1).volume();
           double v2 = cell_set.at(cell_id2-1).volume();
-          Vec3d face_normal = face->faceNormal();
+          Vec3d face_normal = face->faceNormal();  // face norm is always pointing from cell 1 to cell 2, this is how mesh was prepared
+
+          // phi_face = (v2 * phi_1 + v1 * phi_2) / (v1 + v2); equation (5) of ref. [1]
 
           double alpha_12 = v2 / (v1 + v2);
           double alpha_21 = 1.0 - alpha_12;
@@ -469,39 +480,6 @@ int main(int argc, char **argv)
     bb_vstar[row] += vv[row] * RHO * it->volume() / DT;
     /* This function has been checked; 09/02/2019, 1:38PM */
   }
-  /*
-  // u_star v_star contribution from BC
-  for (std::map<int, std::vector<Face*> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
-  {
-    int zone = it->first;
-    switch (zone)
-    {
-      case 1:
-      case 5:
-      case 2:
-      case 3:
-      case 4:
-      { // Nothing to do, F_face on all boundaries are zero
-        for (unsigned int j = 0; j < (it->second).size(); j++)
-        {
-          Face * face = (it->second).at(j);
-          long int cell_id1 = face->cell_id1();
-          Vec3d face_normal = face->faceNormal();
-          double u_face = has_U_BC[zone] ? U_BC[zone] : uu_star[cell_id1-1];
-          double v_face = has_V_BC[zone] ? V_BC[zone] : vv_star[cell_id1-1];
-          double fface = u_face * face_normal.x() + v_face * face_normal.y();
-
-          bb_ustar[cell_id1-1] -= fface * u_face;
-          bb_vstar[cell_id1-1] -= fface * v_face;
-        }
-      }
-      break;
-
-      default:
-        // nothing
-        break;
-    }
-  }*/
 
   MatAssemblyBegin(M_USTAR_FIXED, MAT_FINAL_ASSEMBLY);
   MatAssemblyEnd(M_USTAR_FIXED, MAT_FINAL_ASSEMBLY);
@@ -538,7 +516,7 @@ int main(int argc, char **argv)
       // update advection operator to solve u_star and v_star
       VecCopy(b_USTAR, b_USTAR_FINAL);
       VecCopy(b_VSTAR, b_VSTAR_FINAL);
-      updateAdvectionOperator(app.p_mesh, F_face_star, u_STAR, v_STAR, b_USTAR_FINAL, b_VSTAR_FINAL, M_USTAR, M_VSTAR);
+      updateAdvectionOperator(app.p_mesh, F_face_star, b_USTAR_FINAL, b_VSTAR_FINAL, M_USTAR, M_VSTAR);
 
       KSPSetOperators(ksp_USTAR, M_USTAR, M_USTAR);
       KSPSetFromOptions(ksp_USTAR);
@@ -595,7 +573,7 @@ int main(int argc, char **argv)
     // update advection operator to solve u_star and v_star
     VecCopy(b_USTAR, b_USTAR_FINAL);
     VecCopy(b_VSTAR, b_VSTAR_FINAL);
-    updateAdvectionOperator(app.p_mesh, F_face_star, u_STAR, v_STAR, b_USTAR_FINAL, b_VSTAR_FINAL, M_USTAR, M_VSTAR);
+    updateAdvectionOperator(app.p_mesh, F_face_star, b_USTAR_FINAL, b_VSTAR_FINAL, M_USTAR, M_VSTAR);
     // update rhs due to pressure gradient
     updatePressureGradientAsSource(app.p_mesh, p, p_src_x, p_src_y);
     VecAXPY(b_USTAR_FINAL, 1.0, p_src_x);
