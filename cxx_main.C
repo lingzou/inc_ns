@@ -527,9 +527,7 @@ int main(int argc, char **argv)
       KSPSetFromOptions(ksp_USTAR);
       KSPSetOperators(ksp_VSTAR, M_VSTAR, M_VSTAR);
       KSPSetFromOptions(ksp_VSTAR);
-      //std::cout << "Solving u_STAR" << std::endl;
       KSPSolve(ksp_USTAR, b_USTAR_FINAL, u_STAR);
-      //std::cout << "Solving v_STAR" << std::endl;
       KSPSolve(ksp_VSTAR, b_VSTAR_FINAL, v_STAR);
 
       // Update "mass velocity" flux F_0f_star, after u_star and v_star are solved
@@ -539,30 +537,18 @@ int main(int argc, char **argv)
       // Solve pressure equation
       KSPSetOperators(ksp_P, M_P, M_P);
       KSPSetFromOptions(ksp_P);
-      //VecCopy(p, p_old_it);
-      //std::cout << "Solving p" << std::endl;
       KSPSolve(ksp_P, b_p_FINAL, p);
 
+      // Compute grad_P from solved p
       evaluatePressureGradientValues(app.p_mesh, p, grad_p_x, grad_p_y, grad_p);
-      /*
-      VecAXPY(p_old_it, -1.0, p); // now p_old_it is p - p_old_it
-      PetscScalar error_norm, error_inf;
-      VecNorm(p_old_it, NORM_2, &error_norm);
-      VecNorm(p_old_it, NORM_INFINITY, &error_inf);
-      std::cout << "p error_norm = " << error_norm << std::endl;
-      std::cout << "p error_inf = " << error_inf << std::endl;*/
 
-      // update F_face_star from solved pressure
+      // update F_face_star from solved pressure, and check if it has converged
       VecCopy(F_face_star, F_face_star_old_it);
-      updateFfaceStar(app.p_mesh, F_face_star, F_0f_star, p, grad_p_x, grad_p_y, grad_p);
+      updateFfaceStar(app.p_mesh, F_face_star, F_0f_star, p, grad_p_x, grad_p_y);
       VecAXPY(F_face_star_old_it, -1.0, F_face_star); // now F_face_star_old_it is F_face_star - F_face_star_old_it
       PetscScalar error_norm;
       VecNorm(F_face_star_old_it, NORM_2, &error_norm);
-      //VecNorm(F_face_star_old_it, NORM_INFINITY, &error_inf);
-      //std::cout << "F error_norm = " << error_norm << std::endl;
-      //std::cout << "F error_inf = " << error_inf << std::endl;
 
-      //std::cout << "it = " << i << ": L2 error = " << error_norm << std::endl;
       if (error_norm < 1.0e-9)
       {
         std::cout << "it = " << i << ": L2 error = " << error_norm << std::endl;
@@ -583,18 +569,13 @@ int main(int argc, char **argv)
     updateAdvectionOperator(app.p_mesh, F_face_star, b_USTAR_FINAL, b_VSTAR_FINAL, M_USTAR, M_VSTAR);
     // update rhs due to pressure gradient
     updatePressureGradientAsSource(app.p_mesh, b_USTAR_FINAL, b_VSTAR_FINAL, grad_p_x, grad_p_y);
-    /*
-    updatePressureGradientAsSource(app.p_mesh, p, p_src_x, p_src_y, grad_p);
-    VecAXPY(b_USTAR_FINAL, 1.0, p_src_x);
-    VecAXPY(b_VSTAR_FINAL, 1.0, p_src_y);*/
 
+    // Solve u_star and v_star considering pressure gradients
     KSPSetOperators(ksp_USTAR, M_USTAR, M_USTAR);
     KSPSetFromOptions(ksp_USTAR);
     KSPSetOperators(ksp_VSTAR, M_VSTAR, M_VSTAR);
     KSPSetFromOptions(ksp_VSTAR);
-    //std::cout << "Solving u_STAR again" << std::endl;
     KSPSolve(ksp_USTAR, b_USTAR_FINAL, u_STAR);  // now u_star is u^(n+1)
-    //std::cout << "Solving v_STAR again" << std::endl;
     KSPSolve(ksp_VSTAR, b_VSTAR_FINAL, v_STAR);  // now v_star is v^(n+1)
 
     // Update rhs of velocity equations, prepare for next time step
@@ -629,95 +610,8 @@ int main(int argc, char **argv)
     VecCopy(v_STAR, v);
     // End of time step
 
-    std::string file_name = "output/output_" + std::to_string(time_step) + ".vtu";
-    FILE * ptr_File;
-    ptr_File = fopen(file_name.c_str(), "w");
-    app.p_mesh->writeMesh(ptr_File);
-    std::ostringstream out_string_stream;
-    out_string_stream << "      <CellData>" << "\n";
-
-    // CELL DATA (cell ID)
-    out_string_stream << "        <DataArray type=\"Float32\" Name=\"Cell_ID\" format=\"ascii\">" << "\n";
-    for(unsigned int i = 0; i < cell_set.size(); i++)
-      out_string_stream << "          " << cell_set[i].id() << "\n";
-    out_string_stream << "        </DataArray>" << "\n";
-    // CELL DATA (volume)
-    out_string_stream << "        <DataArray type=\"Float32\" Name=\"volume\" format=\"ascii\">" << "\n";
-    for(unsigned int i = 0; i < cell_set.size(); i++)
-      out_string_stream << "          " << cell_set[i].volume() << "\n";
-    out_string_stream << "        </DataArray>" << "\n";
-
-    //PetscScalar * uu;
-    VecGetArray(u, &uu);
-    out_string_stream << "        <DataArray type=\"Float32\" Name=\"u_star\" format=\"ascii\">" << "\n";
-    for(unsigned int i = 0; i < cell_set.size(); i++)
-      out_string_stream << "          " << uu[i] << "\n";
-    out_string_stream << "        </DataArray>" << "\n";
-    VecRestoreArray(u, &uu);
-
-    //PetscScalar * vv;
-    VecGetArray(v, &vv);
-    out_string_stream << "        <DataArray type=\"Float32\" Name=\"v_star\" format=\"ascii\">" << "\n";
-    for(unsigned int i = 0; i < cell_set.size(); i++)
-      out_string_stream << "          " << vv[i] << "\n";
-    out_string_stream << "        </DataArray>" << "\n";
-    VecRestoreArray(v, &vv);
-
-    PetscScalar * pp;
-    VecGetArray(p, &pp);
-    out_string_stream << "        <DataArray type=\"Float32\" Name=\"pressure\" format=\"ascii\">" << "\n";
-    for(unsigned int i = 0; i < cell_set.size(); i++)
-      out_string_stream << "          " << pp[i] << "\n";
-    out_string_stream << "        </DataArray>" << "\n";
-    VecRestoreArray(p, &pp);
-
-    out_string_stream << "      </CellData>" << "\n";
-
-    // POINT DATA
-    out_string_stream << "      <PointData>" << "\n";
-    // NODE ID
-    out_string_stream << "        <DataArray type=\"Float32\" Name=\"Node_ID\" format=\"ascii\">" << "\n";
-    for(unsigned int i = 0; i < node_set.size(); i++)
-      out_string_stream << "          " << node_set[i]->id() << "\n";
-    out_string_stream << "        </DataArray>" << "\n";
-
-    // Stream function
-    // Assuming it is expensive to evaluate streamline function, just compute the last time step
-    /**** Stream Function ****/
-    if (time_step == N_TIMESTEP-1)
-    {
-      std::vector<StreamFunctionNode *> SFNodeVec(node_set.size(), NULL);
-
-      PetscScalar * ff;
-      VecGetArray(F_face_star, &ff);
-      for (int i = 0; i < node_set.size(); i++)
-      {
-        StreamFunctionNode * SFNode = new StreamFunctionNode(node_set.at(i), SFNodeVec, ff);
-        SFNodeVec[i] = SFNode;
-      }
-
-      SFNodeVec.at(0)->computeStreamFunction(0.0);
-
-      VecRestoreArray(F_face_star, &ff);
-
-      out_string_stream << "        <DataArray type=\"Float32\" Name=\"StreamFunction\" format=\"ascii\">" << "\n";
-      for(unsigned int i = 0; i < node_set.size(); i++)
-        out_string_stream << "          " << SFNodeVec[i]->getSFValue() << "\n";
-      out_string_stream << "        </DataArray>" << "\n";
-      for (int i = 0; i < SFNodeVec.size(); i++)
-      {
-        delete SFNodeVec.at(i);
-      }
-    }
-
-    out_string_stream << "      </PointData>" << "\n";
-
-    fprintf(ptr_File, "%s", out_string_stream.str().c_str());
-
-    app.p_mesh->finishFile(ptr_File);
-    fclose(ptr_File);
-    //delete p_mesh;
-
+    bool computeStreamFunction = (time_step == N_TIMESTEP-1);
+    writeOutputFile(time_step, app.p_mesh, u, v, p, F_face_star, computeStreamFunction);
     std::cout << "Time Step " << time_step << " end <<<<<<<<<" << std::endl << std::endl;
   }
 

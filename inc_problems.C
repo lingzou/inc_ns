@@ -93,15 +93,6 @@ void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec b_UST
           const FluentTriCell & cell_2 = cell_set.at(cell_id2-1);
           double v1 = cell_1.volume();
           double v2 = cell_2.volume();
-          //const Point & ct1 = cell_1.centroid();
-          //const Point & ct2 = cell_2.centroid();
-          //Vec3d ct_to_ct = ct2 - ct1;
-          //double distance = ct_to_ct.norm();
-          //Vec3d n1 = ct_to_ct.unitVector();
-
-          //Vec3d face_normal = face.faceNormal();
-          //Vec3d nf = face_normal.unitVector();
-          //Vec3d n2 = nf - n1;
 
           double area_f = face->area();
           double alpha_12 = v2 / (v1 + v2);
@@ -147,9 +138,7 @@ void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec b_UST
 
 void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec F_0f_star, Vec b_p)
 {
-  // zero out b_p first
-  // VecSet(b_p, 0.0);
-  // Update "mass velocity" flux F_0f_star
+  // Update "mass velocity" flux F_0f_star and use it as pressure equation's right-hand-side
   PetscScalar * f0f;
   PetscScalar * uu_star;
   PetscScalar * vv_star;
@@ -170,7 +159,7 @@ void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec 
       case 2:
       case 3:
       case 4:
-      { // Nothing to do, F_face on all boundaries are zero
+      {
         for (unsigned int j = 0; j < (it->second).size(); j++)
         {
           Face * face = (it->second).at(j);
@@ -201,11 +190,11 @@ void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec 
 
           Vec3d face_normal = face->faceNormal();
 
-          double val = u_face * face_normal.x() + v_face * face_normal.y();
-          f0f[face->id()] = val;
+          double fface = u_face * face_normal.x() + v_face * face_normal.y();
+          f0f[face->id()] = fface;
 
-          bb_p[cell_id1-1] += val / DT;
-          bb_p[cell_id2-1] -= val / DT;
+          bb_p[cell_id1-1] += fface / DT;
+          bb_p[cell_id2-1] -= fface / DT;
         }
       }
       break;
@@ -223,18 +212,12 @@ void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec 
   VecRestoreArray(b_p, &bb_p);
 }
 
-void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Vec p, Vec gradP_x, Vec gradP_y, GRAD * grad_p)
+void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Vec p, Vec gradP_x, Vec gradP_y)
 {
-  PetscScalar * ff;
-  PetscScalar * pp;
-  PetscScalar * f0f;
-  PetscScalar * grad_p_x;
-  PetscScalar * grad_p_y;
-  VecGetArray(F_face_star, &ff);
-  VecGetArray(F_0f_star, &f0f);
-  VecGetArray(gradP_x, &grad_p_x);
-  VecGetArray(gradP_y, &grad_p_y);
-  VecGetArray(p, &pp);
+  PetscScalar * ff, * f0f, * pp;
+  PetscScalar * grad_p_x, * grad_p_y;
+  VecGetArray(F_face_star, &ff);  VecGetArray(F_0f_star, &f0f); VecGetArray(p, &pp);
+  VecGetArray(gradP_x, &grad_p_x);  VecGetArray(gradP_y, &grad_p_y);
 
   std::vector<FluentTriCell> & cell_set = p_mesh->getCellSet();
   std::map<int, std::vector<Face*> > & face_zone_map = p_mesh->getFaceZoneMap();
@@ -283,33 +266,7 @@ void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Ve
           double area_f = face->area();
           double alpha_12 = v2 / (v1 + v2);
           double alpha_21 = 1.0 - alpha_12;
-/*
-          //std::cout << "->Cell 1" << std::endl;
-          double grad_p_dot_n2_cell1 = 0.0;
-          int size1 = grad_p[cell_id1-1].size;
-          if (size1 > 3) {std::cerr<<"size1 > 3\n"; exit(1);}
-          for (int i = 0; i < size1+1; i++)
-          {
-            long int cell_id_i = grad_p[cell_id1-1].cell_id[i]-1;
-            double pi = pp[cell_id_i];
-            grad_p_dot_n2_cell1 += (grad_p[cell_id1-1].coef_x[i] * n2.x() + grad_p[cell_id1-1].coef_y[i] * n2.y()) * pi;
-          }
-          grad_p_dot_n2_cell1 += grad_p[cell_id1-1].bc_x * n2.x() + grad_p[cell_id1-1].bc_y * n2.y();
-          grad_p_dot_n2_cell1 *= alpha_12;
 
-          //std::cout << "->Cell 2" << std::endl;
-          double grad_p_dot_n2_cell2 = 0.0;
-          int size2 = grad_p[cell_id2-1].size;
-          if (size2 > 3) {std::cerr<<"size2 > 3\n"; exit(1);}
-          for (int i = 0; i < size2+1; i++)
-          {
-            long int cell_id_i = grad_p[cell_id2-1].cell_id[i]-1;
-            double pi = pp[cell_id_i];
-            grad_p_dot_n2_cell2 += (grad_p[cell_id2-1].coef_x[i] * n2.x() + grad_p[cell_id2-1].coef_y[i] * n2.y()) * pi;
-          }
-          grad_p_dot_n2_cell2 += grad_p[cell_id2-1].bc_x * n2.x() + grad_p[cell_id2-1].bc_y * n2.y();
-          grad_p_dot_n2_cell2 *= alpha_21;
-*/
           double cross_diff = alpha_12 * (grad_p_x[cell_id1-1] * n2.x() + grad_p_y[cell_id1-1] * n2.y())
                             + alpha_21 * (grad_p_x[cell_id2-1] * n2.x() + grad_p_y[cell_id2-1] * n2.y());
           double pressure_correction = area_f * ((pp[cell_id2-1] - pp[cell_id1-1]) / distance + cross_diff);
@@ -323,22 +280,15 @@ void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Ve
         std::cerr << "ERROR" << std::endl;
     }
   }
-  //std::cout << "End loop: before restore vec" << std::endl;
-  VecRestoreArray(F_face_star, &ff);
-  VecRestoreArray(F_0f_star, &f0f);
-  VecRestoreArray(gradP_x, &grad_p_x);
-  VecRestoreArray(gradP_y, &grad_p_y);
-  VecRestoreArray(p, &pp);
-  //std::cout << "End loop" << std::endl;
+  VecRestoreArray(F_face_star, &ff); VecRestoreArray(F_0f_star, &f0f); VecRestoreArray(p, &pp);
+  VecRestoreArray(gradP_x, &grad_p_x); VecRestoreArray(gradP_y, &grad_p_y);
 }
 
 void evaluatePressureGradientValues(FluentTwoDMesh * p_mesh, Vec p, Vec gradP_x, Vec gradP_y, GRAD * grad_p)
 {
   VecSet(gradP_x, 0.0); VecSet(gradP_y, 0.0);
   PetscScalar * pp, * grad_p_x, * grad_p_y;
-  VecGetArray(p, &pp);
-  VecGetArray(gradP_x, &grad_p_x);
-  VecGetArray(gradP_y, &grad_p_y);
+  VecGetArray(p, &pp); VecGetArray(gradP_x, &grad_p_x); VecGetArray(gradP_y, &grad_p_y);
 
   std::vector<FluentTriCell> & cell_set = p_mesh->getCellSet();
 
@@ -356,9 +306,7 @@ void evaluatePressureGradientValues(FluentTwoDMesh * p_mesh, Vec p, Vec gradP_x,
     grad_p_x[cell_id-1] += grad_p_cell.bc_x;
     grad_p_y[cell_id-1] += grad_p_cell.bc_y;
   }
-  VecRestoreArray(gradP_x, &grad_p_x);
-  VecRestoreArray(gradP_y, &grad_p_y);
-  VecRestoreArray(p, &pp);
+  VecRestoreArray(gradP_x, &grad_p_x); VecRestoreArray(gradP_y, &grad_p_y); VecRestoreArray(p, &pp);
 }
 
 void updatePressureGradientAsSource(FluentTwoDMesh * p_mesh, Vec b_USTAR, Vec b_VSTAR, Vec gradP_x, Vec gradP_y)
@@ -379,97 +327,101 @@ void updatePressureGradientAsSource(FluentTwoDMesh * p_mesh, Vec b_USTAR, Vec b_
   VecRestoreArray(b_USTAR, &bb_ustar);  VecRestoreArray(b_VSTAR, &bb_vstar);
   VecRestoreArray(gradP_x, &grad_p_x);  VecRestoreArray(gradP_y, &grad_p_y);
 }
-/*
-void updatePressureGradientAsSource(FluentTwoDMesh * p_mesh, Vec p, Vec p_src_x, Vec p_src_y, GRAD * grad_p)
+
+
+/**************
+ * output
+ **************/
+void writeOutputFile(int time_step, FluentTwoDMesh * p_mesh, Vec u, Vec v, Vec p, Vec F_face_star, bool computeStreamFunction)
 {
-  VecSet(p_src_x, 0.0); VecSet(p_src_y, 0.0);
-  PetscScalar * pp, * pp_src_x, * pp_src_y;
-  VecGetArray(p, &pp);
-  VecGetArray(p_src_x, &pp_src_x);
-  VecGetArray(p_src_y, &pp_src_y);
-
   std::vector<FluentTriCell> & cell_set = p_mesh->getCellSet();
+  std::vector<Node*> & node_set = p_mesh->getNodeSet();
 
-  for(std::vector<FluentTriCell>::iterator it = cell_set.begin(); it != cell_set.end(); ++it)
-  {
-    long int cell_id = it->id();
-    GRAD & grad_p_cell = grad_p[cell_id-1];
-    for (int i = 0; i < grad_p_cell.size+1; i++)
-    {
-      long int cell_id_i = grad_p_cell.cell_id[i];
-      double pi = pp[cell_id_i-1];
-      pp_src_x[cell_id-1] -= grad_p_cell.coef_x[i] * pi;
-      pp_src_y[cell_id-1] -= grad_p_cell.coef_y[i] * pi;
-    }
-    pp_src_x[cell_id-1] -= grad_p_cell.bc_x;
-    pp_src_y[cell_id-1] -= grad_p_cell.bc_y;
+  std::string file_name = "output/output_" + std::to_string(time_step) + ".vtu";
+  FILE * ptr_File;
+  ptr_File = fopen(file_name.c_str(), "w");
+  p_mesh->writeMesh(ptr_File);
+  std::ostringstream out_string_stream;
+  out_string_stream << "      <CellData>" << "\n";
 
-    pp_src_x[cell_id-1] *= it->volume();
-    pp_src_y[cell_id-1] *= it->volume();
-  }
-  *
-  std::map<int, std::vector<Face*> > & face_zone_map = p_mesh->getFaceZoneMap();
-  for (std::map<int, std::vector<Face*> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
-  {
-    int zone = it->first;
-    //std::cout << "zone = " << zone << std::endl;
-    switch (zone)
-    {
-      case 1:
-      case 5: // TOP
-      case 2: // RIGHT
-      case 3: // BOTTOM
-      case 4: // LEFT
-      {
-        for (unsigned int j = 0; j < (it->second).size(); j++)
-        {
-          Face * face = (it->second)[j];
-          long int cell_id1 = face->cell_id1();
-          Vec3d face_normal = face->faceNormal();
-          //double p_face = pp[cell_id1-1];
-          double p_face = 0.0;
+  // CELL DATA (cell ID)
+  out_string_stream << "        <DataArray type=\"Float32\" Name=\"Cell_ID\" format=\"ascii\">" << "\n";
+  for(unsigned int i = 0; i < cell_set.size(); i++)
+    out_string_stream << "          " << cell_set[i].id() << "\n";
+  out_string_stream << "        </DataArray>" << "\n";
+  // CELL DATA (volume)
+  out_string_stream << "        <DataArray type=\"Float32\" Name=\"volume\" format=\"ascii\">" << "\n";
+  for(unsigned int i = 0; i < cell_set.size(); i++)
+    out_string_stream << "          " << cell_set[i].volume() << "\n";
+  out_string_stream << "        </DataArray>" << "\n";
 
-          if (has_p_BC[zone])
-            p_face = p_BC[zone];
-          else
-            p_face = pp[cell_id1-1]; // assuming dp/dn = 0
+  PetscScalar * uu;
+  VecGetArray(u, &uu);
+  out_string_stream << "        <DataArray type=\"Float32\" Name=\"u_star\" format=\"ascii\">" << "\n";
+  for(unsigned int i = 0; i < cell_set.size(); i++)
+    out_string_stream << "          " << uu[i] << "\n";
+  out_string_stream << "        </DataArray>" << "\n";
+  VecRestoreArray(u, &uu);
 
-          pp_src_x[cell_id1-1] -= p_face * face_normal.x();
-          pp_src_y[cell_id1-1] -= p_face * face_normal.y();
-        }
-      }
-      break;
+  PetscScalar * vv;
+  VecGetArray(v, &vv);
+  out_string_stream << "        <DataArray type=\"Float32\" Name=\"v_star\" format=\"ascii\">" << "\n";
+  for(unsigned int i = 0; i < cell_set.size(); i++)
+    out_string_stream << "          " << vv[i] << "\n";
+  out_string_stream << "        </DataArray>" << "\n";
+  VecRestoreArray(v, &vv);
 
-      case 7:
-      {
-        for (unsigned int j = 0; j < (it->second).size(); j++)
-        {
-          Face * face = (it->second)[j];
-          long int cell_id1 = face->cell_id1();
-          long int cell_id2 = face->cell_id2();
-          double v1 = cell_set.at(cell_id1-1).volume();
-          double v2 = cell_set.at(cell_id2-1).volume();
-          Vec3d face_normal = face->faceNormal();
-
-          double alpha_12 = v2 / (v1 + v2);
-          double alpha_21 = 1.0 - alpha_12;
-          // Cell 1
-          double p_face = alpha_12 * pp[cell_id1-1] + alpha_21 * pp[cell_id2-1];
-
-          pp_src_x[cell_id1-1] -= p_face * face_normal.x();
-          pp_src_y[cell_id1-1] -= p_face * face_normal.y();
-
-          pp_src_x[cell_id2-1] += p_face * face_normal.x();
-          pp_src_y[cell_id2-1] += p_face * face_normal.y();
-        }
-      }
-      break;
-
-      default:
-        std::cerr << "ERROR" << std::endl;
-    }
-  }*
-  VecRestoreArray(p_src_x, &pp_src_x);
-  VecRestoreArray(p_src_y, &pp_src_y);
+  PetscScalar * pp;
+  VecGetArray(p, &pp);
+  out_string_stream << "        <DataArray type=\"Float32\" Name=\"pressure\" format=\"ascii\">" << "\n";
+  for(unsigned int i = 0; i < cell_set.size(); i++)
+    out_string_stream << "          " << pp[i] << "\n";
+  out_string_stream << "        </DataArray>" << "\n";
   VecRestoreArray(p, &pp);
-}*/
+
+  out_string_stream << "      </CellData>" << "\n";
+
+  // POINT DATA
+  out_string_stream << "      <PointData>" << "\n";
+  // NODE ID
+  out_string_stream << "        <DataArray type=\"Float32\" Name=\"Node_ID\" format=\"ascii\">" << "\n";
+  for(unsigned int i = 0; i < node_set.size(); i++)
+    out_string_stream << "          " << node_set[i]->id() << "\n";
+  out_string_stream << "        </DataArray>" << "\n";
+
+  // Stream function
+  // Assuming it is expensive to evaluate streamline function, just compute the last time step
+  /**** Stream Function ****/
+  if (computeStreamFunction)
+  {
+    std::vector<StreamFunctionNode *> SFNodeVec(node_set.size(), NULL);
+
+    PetscScalar * ff;
+    VecGetArray(F_face_star, &ff);
+    for (int i = 0; i < node_set.size(); i++)
+    {
+      StreamFunctionNode * SFNode = new StreamFunctionNode(node_set.at(i), SFNodeVec, ff);
+      SFNodeVec[i] = SFNode;
+    }
+
+    SFNodeVec.at(0)->computeStreamFunction(0.0);
+
+    VecRestoreArray(F_face_star, &ff);
+
+    out_string_stream << "        <DataArray type=\"Float32\" Name=\"StreamFunction\" format=\"ascii\">" << "\n";
+    for(unsigned int i = 0; i < node_set.size(); i++)
+      out_string_stream << "          " << SFNodeVec[i]->getSFValue() << "\n";
+    out_string_stream << "        </DataArray>" << "\n";
+    for (int i = 0; i < SFNodeVec.size(); i++)
+    {
+      delete SFNodeVec.at(i);
+    }
+  }
+
+  out_string_stream << "      </PointData>" << "\n";
+
+  fprintf(ptr_File, "%s", out_string_stream.str().c_str());
+
+  p_mesh->finishFile(ptr_File);
+  fclose(ptr_File);
+}
