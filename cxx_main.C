@@ -178,6 +178,7 @@ int main(int argc, char **argv)
   Vec       F_face_star, F_0f_star, F_face_star_old_it;
   KSP       ksp_USTAR, ksp_VSTAR, ksp_P;
 
+  Vec       grad_p_x, grad_p_y;
   Vec       p_src_x, p_src_y;
 
   std::cout << "KSP START SETUP" << std::endl;
@@ -197,6 +198,8 @@ int main(int argc, char **argv)
   VecDuplicate(u_STAR, &b_p_FINAL);
   VecDuplicate(u_STAR, &p_old_it);
 
+  VecDuplicate(u_STAR, &grad_p_x);
+  VecDuplicate(u_STAR, &grad_p_y);
   VecDuplicate(u_STAR, &p_src_x);
   VecDuplicate(u_STAR, &p_src_y);
 
@@ -213,6 +216,8 @@ int main(int argc, char **argv)
   VecSet(b_p_FINAL, 0.0);
   VecSet(p_old_it, 0.0);
 
+  VecSet(grad_p_x, 0.0);
+  VecSet(grad_p_y, 0.0);
   VecSet(p_src_x, 0.0);
   VecSet(p_src_y, 0.0);
 
@@ -537,6 +542,8 @@ int main(int argc, char **argv)
       //VecCopy(p, p_old_it);
       //std::cout << "Solving p" << std::endl;
       KSPSolve(ksp_P, b_p_FINAL, p);
+
+      evaluatePressureGradientValues(app.p_mesh, p, grad_p_x, grad_p_y, grad_p);
       /*
       VecAXPY(p_old_it, -1.0, p); // now p_old_it is p - p_old_it
       PetscScalar error_norm, error_inf;
@@ -547,7 +554,7 @@ int main(int argc, char **argv)
 
       // update F_face_star from solved pressure
       VecCopy(F_face_star, F_face_star_old_it);
-      updateFfaceStar(app.p_mesh, F_face_star, F_0f_star, p, u_STAR, v_STAR, grad_p);
+      updateFfaceStar(app.p_mesh, F_face_star, F_0f_star, p, grad_p_x, grad_p_y, grad_p);
       VecAXPY(F_face_star_old_it, -1.0, F_face_star); // now F_face_star_old_it is F_face_star - F_face_star_old_it
       PetscScalar error_norm;
       VecNorm(F_face_star_old_it, NORM_2, &error_norm);
@@ -575,9 +582,11 @@ int main(int argc, char **argv)
     VecCopy(b_VSTAR, b_VSTAR_FINAL);
     updateAdvectionOperator(app.p_mesh, F_face_star, b_USTAR_FINAL, b_VSTAR_FINAL, M_USTAR, M_VSTAR);
     // update rhs due to pressure gradient
-    updatePressureGradientAsSource(app.p_mesh, p, p_src_x, p_src_y);
+    updatePressureGradientAsSource(app.p_mesh, b_USTAR_FINAL, b_VSTAR_FINAL, grad_p_x, grad_p_y);
+    /*
+    updatePressureGradientAsSource(app.p_mesh, p, p_src_x, p_src_y, grad_p);
     VecAXPY(b_USTAR_FINAL, 1.0, p_src_x);
-    VecAXPY(b_VSTAR_FINAL, 1.0, p_src_y);
+    VecAXPY(b_VSTAR_FINAL, 1.0, p_src_y);*/
 
     KSPSetOperators(ksp_USTAR, M_USTAR, M_USTAR);
     KSPSetFromOptions(ksp_USTAR);
@@ -718,7 +727,7 @@ int main(int argc, char **argv)
   KSPDestroy(&ksp_USTAR); KSPDestroy(&ksp_VSTAR); KSPDestroy(&ksp_P);
 
   VecDestroy(&F_face_star); VecDestroy(&F_0f_star); VecDestroy(&F_face_star_old_it);
-  VecDestroy(&p_src_x); VecDestroy(&p_src_y);
+  VecDestroy(&grad_p_x); VecDestroy(&grad_p_y); VecDestroy(&p_src_x); VecDestroy(&p_src_y);
 
   app.FreeWorkSpace();
 

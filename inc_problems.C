@@ -223,17 +223,17 @@ void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec 
   VecRestoreArray(b_p, &bb_p);
 }
 
-void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Vec p, Vec u_STAR, Vec v_STAR, GRAD * grad_p)
+void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Vec p, Vec gradP_x, Vec gradP_y, GRAD * grad_p)
 {
   PetscScalar * ff;
   PetscScalar * pp;
   PetscScalar * f0f;
-  PetscScalar * uu_star;
-  PetscScalar * vv_star;
+  PetscScalar * grad_p_x;
+  PetscScalar * grad_p_y;
   VecGetArray(F_face_star, &ff);
   VecGetArray(F_0f_star, &f0f);
-  VecGetArray(u_STAR, &uu_star);
-  VecGetArray(v_STAR, &vv_star);
+  VecGetArray(gradP_x, &grad_p_x);
+  VecGetArray(gradP_y, &grad_p_y);
   VecGetArray(p, &pp);
 
   std::vector<FluentTriCell> & cell_set = p_mesh->getCellSet();
@@ -283,7 +283,7 @@ void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Ve
           double area_f = face->area();
           double alpha_12 = v2 / (v1 + v2);
           double alpha_21 = 1.0 - alpha_12;
-
+/*
           //std::cout << "->Cell 1" << std::endl;
           double grad_p_dot_n2_cell1 = 0.0;
           int size1 = grad_p[cell_id1-1].size;
@@ -309,9 +309,10 @@ void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Ve
           }
           grad_p_dot_n2_cell2 += grad_p[cell_id2-1].bc_x * n2.x() + grad_p[cell_id2-1].bc_y * n2.y();
           grad_p_dot_n2_cell2 *= alpha_21;
-
-          double pressure_correction = (pp[cell_id2-1] - pp[cell_id1-1]) / distance + grad_p_dot_n2_cell1 + grad_p_dot_n2_cell2;
-          pressure_correction *= area_f;
+*/
+          double cross_diff = alpha_12 * (grad_p_x[cell_id1-1] * n2.x() + grad_p_y[cell_id1-1] * n2.y())
+                            + alpha_21 * (grad_p_x[cell_id2-1] * n2.x() + grad_p_y[cell_id2-1] * n2.y());
+          double pressure_correction = area_f * ((pp[cell_id2-1] - pp[cell_id1-1]) / distance + cross_diff);
 
           ff[face->id()] = f0f[face->id()] - DT * pressure_correction;
         }
@@ -325,13 +326,61 @@ void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Ve
   //std::cout << "End loop: before restore vec" << std::endl;
   VecRestoreArray(F_face_star, &ff);
   VecRestoreArray(F_0f_star, &f0f);
-  VecRestoreArray(u_STAR, &uu_star);
-  VecRestoreArray(v_STAR, &vv_star);
+  VecRestoreArray(gradP_x, &grad_p_x);
+  VecRestoreArray(gradP_y, &grad_p_y);
   VecRestoreArray(p, &pp);
   //std::cout << "End loop" << std::endl;
 }
 
-void updatePressureGradientAsSource(FluentTwoDMesh * p_mesh, Vec p, Vec p_src_x, Vec p_src_y)
+void evaluatePressureGradientValues(FluentTwoDMesh * p_mesh, Vec p, Vec gradP_x, Vec gradP_y, GRAD * grad_p)
+{
+  VecSet(gradP_x, 0.0); VecSet(gradP_y, 0.0);
+  PetscScalar * pp, * grad_p_x, * grad_p_y;
+  VecGetArray(p, &pp);
+  VecGetArray(gradP_x, &grad_p_x);
+  VecGetArray(gradP_y, &grad_p_y);
+
+  std::vector<FluentTriCell> & cell_set = p_mesh->getCellSet();
+
+  for(std::vector<FluentTriCell>::iterator it = cell_set.begin(); it != cell_set.end(); ++it)
+  {
+    long int cell_id = it->id();
+    GRAD & grad_p_cell = grad_p[cell_id-1];
+    for (int i = 0; i < grad_p_cell.size+1; i++)
+    {
+      long int cell_id_i = grad_p_cell.cell_id[i];
+      double pi = pp[cell_id_i-1];
+      grad_p_x[cell_id-1] += grad_p_cell.coef_x[i] * pi;
+      grad_p_y[cell_id-1] += grad_p_cell.coef_y[i] * pi;
+    }
+    grad_p_x[cell_id-1] += grad_p_cell.bc_x;
+    grad_p_y[cell_id-1] += grad_p_cell.bc_y;
+  }
+  VecRestoreArray(gradP_x, &grad_p_x);
+  VecRestoreArray(gradP_y, &grad_p_y);
+  VecRestoreArray(p, &pp);
+}
+
+void updatePressureGradientAsSource(FluentTwoDMesh * p_mesh, Vec b_USTAR, Vec b_VSTAR, Vec gradP_x, Vec gradP_y)
+{
+  PetscScalar * bb_ustar, * bb_vstar, * grad_p_x, * grad_p_y;
+  VecGetArray(b_USTAR, &bb_ustar); VecGetArray(b_VSTAR, &bb_vstar);
+  VecGetArray(gradP_x, &grad_p_x); VecGetArray(gradP_y, &grad_p_y);
+
+  std::vector<FluentTriCell> & cell_set = p_mesh->getCellSet();
+
+  for(std::vector<FluentTriCell>::iterator it = cell_set.begin(); it != cell_set.end(); ++it)
+  {
+    long int cell_id = it->id();
+    bb_ustar[cell_id-1] -= grad_p_x[cell_id-1] * it->volume();
+    bb_vstar[cell_id-1] -= grad_p_y[cell_id-1] * it->volume();
+  }
+
+  VecRestoreArray(b_USTAR, &bb_ustar);  VecRestoreArray(b_VSTAR, &bb_vstar);
+  VecRestoreArray(gradP_x, &grad_p_x);  VecRestoreArray(gradP_y, &grad_p_y);
+}
+/*
+void updatePressureGradientAsSource(FluentTwoDMesh * p_mesh, Vec p, Vec p_src_x, Vec p_src_y, GRAD * grad_p)
 {
   VecSet(p_src_x, 0.0); VecSet(p_src_y, 0.0);
   PetscScalar * pp, * pp_src_x, * pp_src_y;
@@ -340,6 +389,25 @@ void updatePressureGradientAsSource(FluentTwoDMesh * p_mesh, Vec p, Vec p_src_x,
   VecGetArray(p_src_y, &pp_src_y);
 
   std::vector<FluentTriCell> & cell_set = p_mesh->getCellSet();
+
+  for(std::vector<FluentTriCell>::iterator it = cell_set.begin(); it != cell_set.end(); ++it)
+  {
+    long int cell_id = it->id();
+    GRAD & grad_p_cell = grad_p[cell_id-1];
+    for (int i = 0; i < grad_p_cell.size+1; i++)
+    {
+      long int cell_id_i = grad_p_cell.cell_id[i];
+      double pi = pp[cell_id_i-1];
+      pp_src_x[cell_id-1] -= grad_p_cell.coef_x[i] * pi;
+      pp_src_y[cell_id-1] -= grad_p_cell.coef_y[i] * pi;
+    }
+    pp_src_x[cell_id-1] -= grad_p_cell.bc_x;
+    pp_src_y[cell_id-1] -= grad_p_cell.bc_y;
+
+    pp_src_x[cell_id-1] *= it->volume();
+    pp_src_y[cell_id-1] *= it->volume();
+  }
+  *
   std::map<int, std::vector<Face*> > & face_zone_map = p_mesh->getFaceZoneMap();
   for (std::map<int, std::vector<Face*> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
   {
@@ -400,8 +468,8 @@ void updatePressureGradientAsSource(FluentTwoDMesh * p_mesh, Vec p, Vec p_src_x,
       default:
         std::cerr << "ERROR" << std::endl;
     }
-  }
+  }*
   VecRestoreArray(p_src_x, &pp_src_x);
   VecRestoreArray(p_src_y, &pp_src_y);
   VecRestoreArray(p, &pp);
-}
+}*/
