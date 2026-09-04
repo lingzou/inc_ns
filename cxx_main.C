@@ -28,29 +28,48 @@ int main(int argc, char **argv)
 {
   PetscInitialize(&argc, &argv, (char *)0, PETSC_NULL);
 
-  char        problem_name[PETSC_MAX_PATH_LEN];   // problem name
-  PetscBool   problem_specified = PETSC_FALSE;    // problem name specified?
-  PetscOptionsGetString(NULL, NULL, "-p", problem_name, sizeof(problem_name), &problem_specified);
+  char      inputFile[PETSC_MAX_PATH_LEN];
+  PetscBool input_specified = PETSC_FALSE;
+  PetscOptionsGetString(NULL, NULL, "-i", inputFile, sizeof(inputFile), &input_specified);
 
-  if (!problem_specified)
+  if (!input_specified)
   {
-    std::cout << "ERROR: Problem name is not specified." << std::endl;
-    std::cout << "Please specify the problem name using '-p <problem_name>', for example, '-p cavity'." << std::endl;
+    std::cout << "ERROR: Input file is not specified." << std::endl;
+    std::cout << "Please specify the input file using '-i <input_file>', for example, '-i cylinder.i'." << std::endl;
     exit(1);
   }
+
+  // PETSC_TRUE ("require") makes PETSc itself raise a clear error if inputFile
+  // doesn't exist, so no separate existence check is needed here.
+  PetscOptionsInsertFile(PETSC_COMM_WORLD, NULL, inputFile, PETSC_TRUE);
+
+  char      problem_name[PETSC_MAX_PATH_LEN];
+  char      mesh_file[PETSC_MAX_PATH_LEN];
+  PetscBool problem_specified = PETSC_FALSE;
+  PetscBool mesh_specified = PETSC_FALSE;
+  PetscBool dt_specified = PETSC_FALSE;
+  PetscBool visc_specified = PETSC_FALSE;
+  PetscBool n_timestep_specified = PETSC_FALSE;
+  PetscInt  n_timestep_opt = 0;
+
+  PetscOptionsGetString(NULL, NULL, "-problem", problem_name, sizeof(problem_name), &problem_specified);
+  PetscOptionsGetString(NULL, NULL, "-mesh", mesh_file, sizeof(mesh_file), &mesh_specified);
+  PetscOptionsGetReal(NULL, NULL, "-dt", &DT, &dt_specified);
+  PetscOptionsGetReal(NULL, NULL, "-visc", &VISC, &visc_specified);
+  PetscOptionsGetInt(NULL, NULL, "-n_timestep", &n_timestep_opt, &n_timestep_specified);
+
+  if (!problem_specified || !mesh_specified || !dt_specified || !visc_specified || !n_timestep_specified)
+  {
+    std::cout << "ERROR: '" << inputFile << "' must specify all of: -problem, -mesh, -dt, -visc, -n_timestep." << std::endl;
+    exit(1);
+  }
+
+  setupBoundaryConditions(problem_name);
 
   PETSC_APPCTX app;
 
   app.p_mesh = new FluentTwoDMesh();
-  if (strcmp(problem_name, "cavity") == 0)
-    app.p_mesh->createMeshFromFile("cavity.msh", false, true);
-  else if (strcmp(problem_name, "cylinder") == 0)
-    app.p_mesh->createMeshFromFile("flow-past-a-cylinder.msh", false, true);
-  else
-  {
-    std::cout << "I can only do 'cavity' or 'cylinder' problems. Try again." << std::endl;
-    exit(1);
-  }
+  app.p_mesh->createMeshFromFile(mesh_file, false, true);
 
   ExodusOutputContext * exoCtx = createExodusOutput(app.p_mesh, "output/output.e");
 
@@ -509,7 +528,7 @@ int main(int argc, char **argv)
   //VecRestoreArray(v_STAR, &vv_star);
   // std::cout << "KSP START" << std::endl;
 
-  unsigned int N_TIMESTEP = 20;
+  unsigned int N_TIMESTEP = (unsigned int)n_timestep_opt;
   for (int time_step = 0; time_step < N_TIMESTEP; time_step++)
   {
     // Begin of time step

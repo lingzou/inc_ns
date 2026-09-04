@@ -4,6 +4,45 @@
 #include "inc_problems.h"
 //#include "FluentTwoDMesh.h"
 
+std::map<int, bool>   has_U_BC, has_V_BC, has_p_BC;
+std::map<int, double> U_BC, V_BC, p_BC;
+double DT, VISC;
+
+void setupBoundaryConditions(const std::string & problem_name)
+{
+  if (problem_name == "cylinder")
+  {
+    has_U_BC = {{1, true}, {2, false}, {3, false}, {4, false}, {5, true}};
+    has_V_BC = {{1, true}, {2, true}, {3, false}, {4, true}, {5, true}};
+    has_p_BC = {{1, false}, {2, false}, {3, true}, {4, false}, {5, false}};
+    U_BC = {{1, 1.0}, {5, 0.0}};
+    V_BC = {{1, 0.0}, {2, 0.0}, {4, 0.0}, {5, 0.0}};
+    p_BC = {{3, 0.0}};
+  }
+  else
+  {
+    std::cout << "ERROR: Boundary conditions for problem '" << problem_name << "' are not yet implemented." << std::endl;
+    std::cout << "Currently only 'cylinder' is supported. 'cavity' needs a pressure anchor POINT" << std::endl;
+    std::cout << "(it has no Dirichlet pressure B.C. zone at all), which is not yet wired up in the solver." << std::endl;
+    exit(1);
+  }
+
+  /*
+   * Historical alternate B.C. configuration, kept for reference while cavity support
+   * is being worked out (relocated here, verbatim, from inc_problems.h):
+   *
+   * static std::map<int, bool> has_U_BC = {{1, true}, {2, true}, {3, false}, {4, true}, {5, true}};
+   * static std::map<int, double> U_BC = {{1, 1.0}, {2, 0.0}, {4, 0.0}, {5, 0.0}};
+   *
+   * has_U_BC[2] = true; has_U_BC[3] = true; has_U_BC[4] = true; has_U_BC[5] = true;
+   * has_V_BC[2] = true; has_V_BC[3] = true; has_V_BC[4] = true; has_V_BC[5] = true;
+   * has_p_BC[2] = false; has_p_BC[3] = false; has_p_BC[4] = false; has_p_BC[5] = false;
+   * U_BC[2] = 0.0; U_BC[3] = 0.0; U_BC[4] = 0.0; U_BC[5] = 1.0;
+   * V_BC[2] = 0.0; V_BC[3] = 0.0; V_BC[4] = 0.0; V_BC[5] = 0.0;
+   * p_BC[2] = -1e6; p_BC[3] = -1e6; p_BC[4] = -1e6; p_BC[5] = -1e6;
+   */
+}
+
 void
 StreamFunctionNode::computeStreamFunction(double value)
 {

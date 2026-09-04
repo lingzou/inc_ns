@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # run all cases
-./build/inc_exec -p cylinder
+./build/inc_exec -i cylinder.i
 
 EXODIFF=/Users/lingzou/projects/SAM/moose/framework/contrib/exodiff/exodiff
 

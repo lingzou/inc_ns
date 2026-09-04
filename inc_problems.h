@@ -3,27 +3,25 @@
 
 #include "FluentTwoDMesh.h"
 #include <map>
+#include <string>
 
-/* Setup B.C. */
-//static std::map<int, bool> has_U_BC = {{1, true}, {2, true}, {3, false}, {4, true}, {5, true}};
-static std::map<int, bool> has_U_BC = {{1, true}, {2, false}, {3, false}, {4, false}, {5, true}};
-static std::map<int, bool> has_V_BC = {{1, true}, {2, true}, {3, false}, {4, true}, {5, true}};
-static std::map<int, bool> has_p_BC = {{1, false}, {2, false}, {3, true}, {4, false}, {5, false}};
-//static std::map<int, double> U_BC = {{1, 1.0}, {2, 0.0}, {4, 0.0}, {5, 0.0}};
-static std::map<int, double> U_BC = {{1, 1.0}, {5, 0.0}};
-static std::map<int, double> V_BC = {{1, 0.0}, {2, 0.0}, {4, 0.0}, {5, 0.0}};
-static std::map<int, double> p_BC = {{3, 0.0}};
 /*
-has_U_BC[2] = true; has_U_BC[3] = true; has_U_BC[4] = true; has_U_BC[5] = true;
-has_V_BC[2] = true; has_V_BC[3] = true; has_V_BC[4] = true; has_V_BC[5] = true;
-has_p_BC[2] = false; has_p_BC[3] = false; has_p_BC[4] = false; has_p_BC[5] = false;
-U_BC[2] = 0.0; U_BC[3] = 0.0; U_BC[4] = 0.0; U_BC[5] = 1.0;
-V_BC[2] = 0.0; V_BC[3] = 0.0; V_BC[4] = 0.0; V_BC[5] = 0.0;
-p_BC[2] = -1e6; p_BC[3] = -1e6; p_BC[4] = -1e6; p_BC[5] = -1e6;*/
-/* End of B.C. setting */
+ * B.C. maps, DT, and VISC are runtime-configured by setupBoundaryConditions() (see
+ * inc_problems.C), driven by the "-problem" option read from the -i input file.
+ * These must be `extern` (defined exactly once, in inc_problems.C): both this header
+ * and inc_problems.C are compiled into separate translation units, and a `static`
+ * (internal-linkage) definition here would give each one its own independent copy,
+ * silently out of sync the moment they're set at runtime instead of at compile time.
+ */
+extern std::map<int, bool>   has_U_BC, has_V_BC, has_p_BC;
+extern std::map<int, double> U_BC, V_BC, p_BC;
+extern double DT, VISC;
 
-static double DT = 0.05;
-static double VISC = 0.001;
+// Populates the B.C. maps and DT/VISC above for the named problem. Currently only
+// "cylinder" is implemented; "cavity" needs a pressure anchor point (it has no
+// Dirichlet pressure B.C. zone at all) rather than just different B.C. values, and is
+// planned as separate follow-up work.
+void setupBoundaryConditions(const std::string & problem_name);
 
 class StreamFunctionNode
 {
