@@ -31,11 +31,11 @@
 # Un-comment these two lines to use PETSc 3.3.5
 #set (PETSC_DIR /Users/zoul/Downloads/petsc-3.5.4)
 #set (PETSC_DIR /Users/zoul/Downloads/petsc-3.7.7)
-set (PETSC_DIR /Users/lingzou/Downloads/petsc-3.11.3)
-set (PETSC_ARCH arch-darwin-c-opt)
-
-message(${PETSC_DIR})
-message(${PETSC_ARCH})
+# PETSC_DIR / PETSC_ARCH are intentionally NOT hardcoded here: doing so short-circuits the
+# find_path()-based detection below (find_path/find_package_multipass skip searching once
+# the result variable is already defined). Instead, rely on the PETSC_DIR environment
+# variable (e.g. set automatically by 'conda activate moose') or an explicit
+# -DPETSC_DIR=... / -DPETSC_ARCH=... on the cmake command line.
 
 set(PETSC_VALID_COMPONENTS
   C

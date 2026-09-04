@@ -6,31 +6,34 @@
 
 SET (CMAKE_CXX_FLAGS "-std=gnu++11 ${CMAKE_CXX_FLAGS}")
 
-# These are stuffs I copied and pasted here
-# From here
-SET (CMAKE_C_COMPILER             "/opt/moose/gcc-8.3.0/bin/gcc")
-#my own gcc
-#SET (CMAKE_C_COMPILER             "/usr/local/bin/gcc")
-
-#SET (CMAKE_C_FLAGS                "-Wall -std=c99")
-#SET (CMAKE_C_FLAGS_DEBUG          "-g")
-#SET (CMAKE_C_FLAGS_MINSIZEREL     "-Os -DNDEBUG")
-#SET (CMAKE_C_FLAGS_RELEASE        "-O4 -DNDEBUG")
-#SET (CMAKE_C_FLAGS_RELWITHDEBINFO "-O2 -g")
-
-SET (CMAKE_CXX_COMPILER             "/opt/moose/gcc-8.3.0/bin/g++")
-#my own temp g++
-#SET (CMAKE_CXX_COMPILER             "/usr/local/bin/g++")
-
-#SET (CMAKE_CXX_FLAGS                "-Wall")
-#SET (CMAKE_CXX_FLAGS_DEBUG          "-g")
-#SET (CMAKE_CXX_FLAGS_MINSIZEREL     "-Os -DNDEBUG")
-#SET (CMAKE_CXX_FLAGS_RELEASE        "-O4 -DNDEBUG")
-#SET (CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -g")
-# To here
+# Compiler selection: if the caller hasn't already forced a compiler (via the CC/CXX
+# environment variables, or -DCMAKE_C_COMPILER/-DCMAKE_CXX_COMPILER), prefer the MPI
+# compiler wrappers on PATH. This matches whatever PETSc/MPI environment is currently
+# active (e.g. a conda environment like 'moose' activated via 'conda activate moose'),
+# since PETSc itself is typically built with mpicc/mpicxx. Falls back to CMake's normal
+# compiler auto-detection if no MPI wrapper is found.
+if (NOT CMAKE_C_COMPILER AND NOT DEFINED ENV{CC})
+  find_program (_default_mpicc mpicc)
+  if (_default_mpicc)
+    SET (CMAKE_C_COMPILER "${_default_mpicc}")
+  endif ()
+endif ()
+if (NOT CMAKE_CXX_COMPILER AND NOT DEFINED ENV{CXX})
+  find_program (_default_mpicxx mpicxx)
+  if (_default_mpicxx)
+    SET (CMAKE_CXX_COMPILER "${_default_mpicxx}")
+  endif ()
+endif ()
 
 cmake_minimum_required (VERSION 3.10)
 project (PETScApp)
+
+# No build type was ever set here, which means neither GCC nor Clang add any
+# optimization flag (i.e. an implicit -O0). Default to Release (-O3 -DNDEBUG)
+# unless the caller asked for something else, e.g. -DCMAKE_BUILD_TYPE=Debug.
+if (NOT CMAKE_BUILD_TYPE)
+  set (CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif ()
 
 # Get root directory path, show it
 list (APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR})
@@ -38,6 +41,16 @@ message ("The root dir is: " ${CMAKE_SOURCE_DIR})
 
 # Normally PETSc is built with MPI, if not, use CC=mpicc, etc
 find_package (PETSc REQUIRED)
+
+# Some PETSc builds (configured with --download-exodusii) ship a real ExodusII
+# library alongside libpetsc. When available, link it directly too: ExodusOutput.C
+# calls the raw ExodusII C API (ex_put_time) itself, which isn't reachable through
+# PETSC_LIBRARIES alone -- PETSc's own minimal link check only needs libpetsc.
+get_filename_component (PETSC_LIB_DIR ${PETSC_LIBRARIES} DIRECTORY)
+find_library (EXODUS_LIBRARY NAMES exodus HINTS ${PETSC_LIB_DIR})
+if (EXODUS_LIBRARY)
+  message (STATUS "Found ExodusII library: ${EXODUS_LIBRARY}")
+endif ()
 
 include (CheckCSourceCompiles) # The name is misleading, this also tries to link
 check_c_source_compiles ("
@@ -77,7 +90,7 @@ AUX_SOURCE_DIRECTORY(/Users/lingzou/projects/Fluent2DMesh FLUENT_MESH)
 ADD_EXECUTABLE (inc_exec ${SRC_ROOT} ${SRC} ${FLUENT_MESH})
 #TARGET_LINK_LIBRARIES(PETScApp ${PETSC_LIBRARIES} PETScInterface)
 #TARGET_LINK_LIBRARIES(inc_exec ${PETSC_LIBRARIES})
-TARGET_LINK_LIBRARIES(inc_exec ${PETSC_LIBRARIES})
+TARGET_LINK_LIBRARIES(inc_exec ${PETSC_LIBRARIES} ${EXODUS_LIBRARY})
 
 # CTEST testing #########################################################
 ENABLE_TESTING()

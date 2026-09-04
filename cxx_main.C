@@ -2,6 +2,7 @@
 #include <petscsnes.h>
 
 #include "inc_problems.h"
+#include "ExodusOutput.h"
 
 /*
  * References:
@@ -50,6 +51,8 @@ int main(int argc, char **argv)
     std::cout << "I can only do 'cavity' or 'cylinder' problems. Try again." << std::endl;
     exit(1);
   }
+
+  ExodusOutputContext * exoCtx = createExodusOutput(app.p_mesh, "output/output.e");
 
   std::cout << "# of faces: " << app.p_mesh->n_Faces() << std::endl;
 
@@ -612,8 +615,11 @@ int main(int argc, char **argv)
 
     bool computeStreamFunction = (time_step == N_TIMESTEP-1);
     writeOutputFile(time_step, app.p_mesh, u, v, p, F_face_star, computeStreamFunction);
+    writeExodusStep(exoCtx, app.p_mesh, time_step, (time_step+1)*DT, u, v, p, F_face_star, computeStreamFunction);
     std::cout << "Time Step " << time_step << " end <<<<<<<<<" << std::endl << std::endl;
   }
+
+  closeExodusOutput(exoCtx);
 
   VecDestroy(&b_USTAR); VecDestroy(&u_STAR); VecDestroy(&u); MatDestroy(&M_USTAR_FIXED); MatDestroy(&M_USTAR);
   VecDestroy(&b_VSTAR); VecDestroy(&v_STAR); VecDestroy(&v); MatDestroy(&M_VSTAR_FIXED); MatDestroy(&M_VSTAR);
