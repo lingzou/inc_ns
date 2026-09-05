@@ -25,13 +25,21 @@ extern double DT, VISC;
 // longer need to hardcode a specific zone number (e.g. "7") as "the" interior zone.
 extern std::map<int, bool> is_interior_zone;
 
+// True when no zone provides a pressure Dirichlet B.C. (e.g. the lid-driven cavity,
+// which is walls all the way around). The pressure equation is otherwise only defined
+// up to an additive constant, so main() and updateMassVeclocities() anchor cell 0's
+// pressure to zero when this is set -- see the matching MatZeroRows()/bb_p[0]=0.0.
+extern bool PRESSURE_ANCHOR_NEEDED;
+
 // Reads "-bc_<zone>_type <type>" for every zone in p_mesh (plus per-type value
 // options: "-bc_<zone>_u"/"-bc_<zone>_v" for velocity_inlet, "-bc_<zone>_p" for
 // pressure_outlet) and populates the B.C. maps and is_interior_zone above. Supported
 // types:
 //   interior              - shared by two cells, no B.C. (see is_interior_zone above)
-//   velocity_inlet        - u, v both Dirichlet, values from -bc_<zone>_u/_v
-//   wall                  - no-slip: u = v = 0
+//   velocity_inlet        - u, v both Dirichlet, values REQUIRED from -bc_<zone>_u/_v
+//   wall                  - u, v Dirichlet; -bc_<zone>_u/_v are OPTIONAL and default to
+//                            0 (no-slip), so a moving wall (e.g. a cavity's lid) is just
+//                            a wall with an explicit non-zero -bc_<zone>_u/_v
 //   horizontal_slip_wall  - v = 0 only (u left free); e.g. a horizontal tunnel wall
 //   vertical_slip_wall    - u = 0 only (v left free); e.g. a vertical tunnel wall
 //   pressure_outlet       - p Dirichlet, value from -bc_<zone>_p
@@ -39,9 +47,7 @@ extern std::map<int, bool> is_interior_zone;
 // cases above. Exits with a clear error if a mesh zone has no matching "-bc_<zone>_type"
 // or the type name/required values are missing.
 //
-// This does NOT yet handle problems like the lid-driven cavity, which have no
-// Dirichlet pressure B.C. at all (a pressure anchor *point* instead of a zone) --
-// planned as separate follow-up work.
+// Also sets PRESSURE_ANCHOR_NEEDED (see above) once every zone has been processed.
 void setupBoundaryConditions(FluentTwoDMesh * p_mesh);
 
 class StreamFunctionNode
@@ -74,7 +80,9 @@ void evaluatePressureGradientValues(FluentTwoDMesh * p_mesh, Vec p, Vec gradP_x,
 //void updatePressureGradientAsSource(FluentTwoDMesh * p_mesh, Vec p, Vec p_src_x, Vec p_src_y, GRAD * grad_p);
 void updatePressureGradientAsSource(FluentTwoDMesh * p_mesh, Vec b_USTAR, Vec b_VSTAR, Vec grad_p_x, Vec grad_p_y);
 
-void writeOutputFile(int time_step, FluentTwoDMesh * p_mesh, Vec u, Vec v, Vec p, Vec F_face_star, bool computeStreamFunction);
+// Writes "<output_prefix>_<time_step>.vtu", e.g. output_prefix "output/cylinder_out"
+// produces "output/cylinder_out_0.vtu", "output/cylinder_out_1.vtu", etc.
+void writeOutputFile(const std::string & output_prefix, int time_step, FluentTwoDMesh * p_mesh, Vec u, Vec v, Vec p, Vec F_face_star, bool computeStreamFunction);
 
 struct GRAD
 {

@@ -8,6 +8,7 @@
 std::map<int, bool>   has_U_BC, has_V_BC, has_p_BC;
 std::map<int, double> U_BC, V_BC, p_BC;
 std::map<int, bool>   is_interior_zone;
+bool PRESSURE_ANCHOR_NEEDED = false;
 double DT, VISC;
 
 void setupBoundaryConditions(FluentTwoDMesh * p_mesh)
@@ -57,8 +58,18 @@ void setupBoundaryConditions(FluentTwoDMesh * p_mesh)
     }
     else if (type_str == "wall")
     {
-      has_U_BC[zone] = true;  U_BC[zone] = 0.0;
-      has_V_BC[zone] = true;  V_BC[zone] = 0.0;
+      // -bc_<zone>_u/_v are optional here and default to 0.0 (no-slip) when absent --
+      // a moving wall (e.g. a lid-driven cavity's lid) is just a wall with an explicit
+      // non-zero value, unlike velocity_inlet where both values are required.
+      char u_opt[64], v_opt[64];
+      snprintf(u_opt, sizeof(u_opt), "-bc_%d_u", zone);
+      snprintf(v_opt, sizeof(v_opt), "-bc_%d_v", zone);
+      double u_val = 0.0, v_val = 0.0;
+      PetscBool u_flg = PETSC_FALSE, v_flg = PETSC_FALSE;
+      PetscOptionsGetReal(NULL, NULL, u_opt, &u_val, &u_flg);
+      PetscOptionsGetReal(NULL, NULL, v_opt, &v_val, &v_flg);
+      has_U_BC[zone] = true;  U_BC[zone] = u_val;
+      has_V_BC[zone] = true;  V_BC[zone] = v_val;
       has_p_BC[zone] = false;
     }
     else if (type_str == "horizontal_slip_wall")
@@ -96,6 +107,14 @@ void setupBoundaryConditions(FluentTwoDMesh * p_mesh)
       exit(1);
     }
   }
+
+  PRESSURE_ANCHOR_NEEDED = true;
+  for (std::map<int, bool>::iterator it = has_p_BC.begin(); it != has_p_BC.end(); ++it)
+    if (it->second)
+    {
+      PRESSURE_ANCHOR_NEEDED = false;
+      break;
+    }
 
   /*
    * Historical alternate B.C. configuration, kept for reference while cavity support
@@ -286,10 +305,13 @@ void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec 
         bb_p[cell_id2-1] -= fface / DT;
       }
     }
-
-    // anchor point
-    //bb_p[0] = 0.0;
   }
+
+  // Matches the M_P identity row installed in cxx_main.C when no zone provides a
+  // pressure B.C. -- keeps this row's RHS consistent with that anchor.
+  if (PRESSURE_ANCHOR_NEEDED)
+    bb_p[0] = 0.0;
+
   VecRestoreArray(F_0f_star, &f0f);
   VecRestoreArray(u_STAR, &uu_star);
   VecRestoreArray(v_STAR, &vv_star);
@@ -403,12 +425,12 @@ void updatePressureGradientAsSource(FluentTwoDMesh * p_mesh, Vec b_USTAR, Vec b_
 /**************
  * output
  **************/
-void writeOutputFile(int time_step, FluentTwoDMesh * p_mesh, Vec u, Vec v, Vec p, Vec F_face_star, bool computeStreamFunction)
+void writeOutputFile(const std::string & output_prefix, int time_step, FluentTwoDMesh * p_mesh, Vec u, Vec v, Vec p, Vec F_face_star, bool computeStreamFunction)
 {
   std::vector<FluentTriCell> & cell_set = p_mesh->getCellSet();
   std::vector<Node*> & node_set = p_mesh->getNodeSet();
 
-  std::string file_name = "output/output_" + std::to_string(time_step) + ".vtu";
+  std::string file_name = output_prefix + "_" + std::to_string(time_step) + ".vtu";
   FILE * ptr_File;
   ptr_File = fopen(file_name.c_str(), "w");
   p_mesh->writeMesh(ptr_File);

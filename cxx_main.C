@@ -73,7 +73,17 @@ int main(int argc, char **argv)
   // so every boundary zone the mesh actually has can be checked against the input file.
   setupBoundaryConditions(app.p_mesh);
 
-  ExodusOutputContext * exoCtx = createExodusOutput(app.p_mesh, "output/output.e");
+  // Derive the output basename from the input file, e.g. "cylinder.i" -> "cylinder", so
+  // running with different -i files never overwrites each other's output.
+  std::string input_path(inputFile);
+  size_t slash = input_path.find_last_of("/\\");
+  std::string input_base = (slash == std::string::npos) ? input_path : input_path.substr(slash + 1);
+  size_t dot = input_base.find_last_of('.');
+  if (dot != std::string::npos)
+    input_base = input_base.substr(0, dot);
+  std::string output_prefix = "output/" + input_base + "_out";
+
+  ExodusOutputContext * exoCtx = createExodusOutput(app.p_mesh, (output_prefix + ".e").c_str());
 
   std::cout << "# of faces: " << app.p_mesh->n_Faces() << std::endl;
 
@@ -492,8 +502,15 @@ int main(int argc, char **argv)
 
   MatAssemblyBegin(M_P, MAT_FINAL_ASSEMBLY);
   MatAssemblyEnd(M_P, MAT_FINAL_ASSEMBLY);
-  //PetscInt row[1]; row[0] = 0; // anchor p[0] = 0.0
-  //MatZeroRows(M_P, 1, row, 1.0, PETSC_NULL, PETSC_NULL);
+  if (PRESSURE_ANCHOR_NEEDED)
+  {
+    // No zone provides a pressure Dirichlet B.C., so the pressure equation (a pure
+    // Neumann/diffusion problem) is only defined up to an additive constant. Anchor
+    // cell 0's pressure to zero to make the linear system solvable; the matching
+    // bb_p[0] = 0.0 in updateMassVeclocities() keeps this row's RHS consistent.
+    PetscInt row[1]; row[0] = 0;
+    MatZeroRows(M_P, 1, row, 1.0, PETSC_NULL, PETSC_NULL);
+  }
 
   VecRestoreArray(b_USTAR, &bb_ustar);
   VecRestoreArray(b_VSTAR, &bb_vstar);
@@ -609,7 +626,7 @@ int main(int argc, char **argv)
     // End of time step
 
     bool computeStreamFunction = (time_step == N_TIMESTEP-1);
-    writeOutputFile(time_step, app.p_mesh, u, v, p, F_face_star, computeStreamFunction);
+    writeOutputFile(output_prefix, time_step, app.p_mesh, u, v, p, F_face_star, computeStreamFunction);
     writeExodusStep(exoCtx, app.p_mesh, time_step, (time_step+1)*DT, u, v, p, F_face_star, computeStreamFunction);
     std::cout << "Time Step " << time_step << " end <<<<<<<<<" << std::endl << std::endl;
   }
