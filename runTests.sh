@@ -6,7 +6,7 @@ PROBLEMS=(cylinder cavity)
 
 for problem in "${PROBLEMS[@]}"
 do
-  ./build/inc_exec -i ${problem}.i
+  ./build/inc_exec -i input/${problem}.i
 
   temp=$($EXODIFF output/${problem}_out.e expected/${problem}_out.e)
   error=$?

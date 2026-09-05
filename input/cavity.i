@@ -1,5 +1,5 @@
 -problem cavity
--mesh cavity.msh
+-mesh input/cavity.msh
 -dt 0.01
 -visc 0.01
 -n_timestep 20

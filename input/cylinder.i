@@ -1,5 +1,5 @@
 -problem cylinder
--mesh flow-past-a-cylinder.msh
+-mesh input/flow-past-a-cylinder.msh
 -dt 0.05
 -visc 0.001
 -n_timestep 20
