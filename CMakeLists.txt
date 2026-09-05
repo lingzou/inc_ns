@@ -66,13 +66,24 @@ int main(int argc,char *argv[]) {
 # add_definitions (-std=c99)
 # additional comments: seems give error message with g++
 
+# Fluent2DMesh is a sibling repo, expected to be checked out side-by-side with this one
+# (../Fluent2DMesh) by default; override with -DFLUENT2DMESH_DIR=<path> if it lives
+# somewhere else.
+if (NOT FLUENT2DMESH_DIR)
+  set (FLUENT2DMESH_DIR "${CMAKE_SOURCE_DIR}/../Fluent2DMesh" CACHE PATH "Path to the Fluent2DMesh sibling repo")
+endif ()
+get_filename_component (FLUENT2DMESH_DIR "${FLUENT2DMESH_DIR}" ABSOLUTE)
+if (NOT EXISTS "${FLUENT2DMESH_DIR}")
+  message (FATAL_ERROR "Fluent2DMesh not found at ${FLUENT2DMESH_DIR}. Check it out side-by-side with this repo, or pass -DFLUENT2DMESH_DIR=<path>.")
+endif ()
+
 # Essential: include our directories first otherwise we can get internal headers from some installed path
 include_directories (${PETSC_INCLUDES})
 add_definitions (${PETSC_DEFINITIONS})
 # additional include(s)
 include_directories (${CMAKE_SOURCE_DIR})
 include_directories (${CMAKE_SOURCE_DIR}/include)
-include_directories (/Users/lingzou/projects/Fluent2DMesh FLUENT_MESH)
+include_directories (${FLUENT2DMESH_DIR})
 
 #link_directories (${CMAKE_SOURCE_DIR}/solver)
 
@@ -82,7 +93,7 @@ set (CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 # Lists of all source file subdirectories
 AUX_SOURCE_DIRECTORY(${CMAKE_SOURCE_DIR} SRC_ROOT)
 AUX_SOURCE_DIRECTORY(${CMAKE_SOURCE_DIR}/src SRC)
-AUX_SOURCE_DIRECTORY(/Users/lingzou/projects/Fluent2DMesh FLUENT_MESH)
+AUX_SOURCE_DIRECTORY(${FLUENT2DMESH_DIR} FLUENT_MESH)
 #message ("SRC_ROOT" ${SRC_ROOT})
 #message ("SRC_PROBLEMS" ${SRC_PROBLEMS})
 

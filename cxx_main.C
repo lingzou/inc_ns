@@ -1,3 +1,4 @@
+#include <fstream>
 #include <iostream>
 #include <petscsnes.h>
 
@@ -84,6 +85,11 @@ int main(int argc, char **argv)
   std::string output_prefix = "output/" + input_base + "_out";
 
   ExodusOutputContext * exoCtx = createExodusOutput(app.p_mesh, (output_prefix + ".e").c_str());
+
+  // Per-time-step convergence history (u/v L2 error), flushed after every row so an
+  // external process (e.g. gui.py) can tail it live while this run is still going.
+  std::ofstream convergence_file(output_prefix + "_convergence.csv");
+  convergence_file << "time_step,u_L2_error,v_L2_error" << std::endl;
 
   std::cout << "# of faces: " << app.p_mesh->n_Faces() << std::endl;
 
@@ -526,7 +532,7 @@ int main(int argc, char **argv)
   {
     // Begin of time step
     // Perform u_star/v_star -> F_0f -> P -> F_f iteration to get a converged F_f (as well as P)
-    std::cout << "Time Step " << time_step << " begin >>>>>>>>>" << std::endl;
+    std::cout << "Time Step " << time_step << " ... ";
     int N_it_max = 100;
     for (int i = 0; i < N_it_max; i++)
     {
@@ -561,17 +567,17 @@ int main(int argc, char **argv)
       VecCopy(F_face_star, F_face_star_old_it);
       updateFfaceStar(app.p_mesh, F_face_star, F_0f_star, p, grad_p_x, grad_p_y);
       VecAXPY(F_face_star_old_it, -1.0, F_face_star); // now F_face_star_old_it is F_face_star - F_face_star_old_it
-      PetscScalar error_norm;
+      PetscScalar error_norm = 0;
       VecNorm(F_face_star_old_it, NORM_2, &error_norm);
 
       if (error_norm < 1.0e-9)
       {
-        std::cout << "it = " << i << ": L2 error = " << error_norm << std::endl;
+        // std::cout << "it = " << i << ": L2 error = " << error_norm << std::endl;
         break;
       }
       if (i == N_it_max - 1)
       {
-        std::cout << "it = " << i << ": L2 error = " << error_norm << ". Did not converge." << std::endl;
+        std::cout << "it = " << i << ": L2 error = " << error_norm << ". Inner iterations did not converge." << std::endl;
         exit(1);
       }
     }
@@ -618,8 +624,9 @@ int main(int argc, char **argv)
     VecAXPY(v, -1.0, v_STAR); // now v is (v_STAR - v_old)
     PetscScalar error_norm_u, error_norm_v;
     VecNorm(u, NORM_2, &error_norm_u); VecNorm(v, NORM_2, &error_norm_v);
-    std::cout << "    u L2 error = " << error_norm_u << std::endl;
-    std::cout << "    v L2 error = " << error_norm_v << std::endl;
+    // std::cout << "    u L2 error = " << error_norm_u << std::endl;
+    // std::cout << "    v L2 error = " << error_norm_v << std::endl;
+    convergence_file << time_step << "," << error_norm_u << "," << error_norm_v << std::endl;
 
     VecCopy(u_STAR, u);
     VecCopy(v_STAR, v);
@@ -628,7 +635,8 @@ int main(int argc, char **argv)
     bool computeStreamFunction = (time_step == N_TIMESTEP-1);
     writeOutputFile(output_prefix, time_step, app.p_mesh, u, v, p, F_face_star, computeStreamFunction);
     writeExodusStep(exoCtx, app.p_mesh, time_step, (time_step+1)*DT, u, v, p, F_face_star, computeStreamFunction);
-    std::cout << "Time Step " << time_step << " end <<<<<<<<<" << std::endl << std::endl;
+    // std::cout << "Time Step " << time_step << " end <<<<<<<<<" << std::endl << std::endl;
+    std::cout << "  [ok]\n";
   }
 
   closeExodusOutput(exoCtx);
