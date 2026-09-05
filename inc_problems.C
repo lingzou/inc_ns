@@ -1,3 +1,4 @@
+#include <cstdio>
 #include <iostream>
 #include <petscsnes.h>
 
@@ -6,30 +7,100 @@
 
 std::map<int, bool>   has_U_BC, has_V_BC, has_p_BC;
 std::map<int, double> U_BC, V_BC, p_BC;
+std::map<int, bool>   is_interior_zone;
 double DT, VISC;
 
-void setupBoundaryConditions(const std::string & problem_name)
+void setupBoundaryConditions(FluentTwoDMesh * p_mesh)
 {
-  if (problem_name == "cylinder")
+  std::map<int, std::vector<Face*> > & face_zone_map = p_mesh->getFaceZoneMap();
+  for (std::map<int, std::vector<Face*> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
   {
-    has_U_BC = {{1, true}, {2, false}, {3, false}, {4, false}, {5, true}};
-    has_V_BC = {{1, true}, {2, true}, {3, false}, {4, true}, {5, true}};
-    has_p_BC = {{1, false}, {2, false}, {3, true}, {4, false}, {5, false}};
-    U_BC = {{1, 1.0}, {5, 0.0}};
-    V_BC = {{1, 0.0}, {2, 0.0}, {4, 0.0}, {5, 0.0}};
-    p_BC = {{3, 0.0}};
-  }
-  else
-  {
-    std::cout << "ERROR: Boundary conditions for problem '" << problem_name << "' are not yet implemented." << std::endl;
-    std::cout << "Currently only 'cylinder' is supported. 'cavity' needs a pressure anchor POINT" << std::endl;
-    std::cout << "(it has no Dirichlet pressure B.C. zone at all), which is not yet wired up in the solver." << std::endl;
-    exit(1);
+    int zone = it->first;
+
+    char type_opt[64], bc_type[64];
+    PetscBool type_flg = PETSC_FALSE;
+    snprintf(type_opt, sizeof(type_opt), "-bc_%d_type", zone);
+    PetscOptionsGetString(NULL, NULL, type_opt, bc_type, sizeof(bc_type), &type_flg);
+    if (!type_flg)
+    {
+      std::cout << "ERROR: mesh has zone " << zone << " but the input file does not define '"
+                << type_opt << "'." << std::endl;
+      exit(1);
+    }
+    std::string type_str(bc_type);
+
+    if (type_str == "interior")
+    {
+      is_interior_zone[zone] = true;
+      continue;
+    }
+    is_interior_zone[zone] = false;
+
+    if (type_str == "velocity_inlet")
+    {
+      char u_opt[64], v_opt[64];
+      snprintf(u_opt, sizeof(u_opt), "-bc_%d_u", zone);
+      snprintf(v_opt, sizeof(v_opt), "-bc_%d_v", zone);
+      double u_val = 0.0, v_val = 0.0;
+      PetscBool u_flg = PETSC_FALSE, v_flg = PETSC_FALSE;
+      PetscOptionsGetReal(NULL, NULL, u_opt, &u_val, &u_flg);
+      PetscOptionsGetReal(NULL, NULL, v_opt, &v_val, &v_flg);
+      if (!u_flg || !v_flg)
+      {
+        std::cout << "ERROR: zone " << zone << " is 'velocity_inlet' but '" << u_opt << "' and/or '" << v_opt
+                  << "' are not specified." << std::endl;
+        exit(1);
+      }
+      has_U_BC[zone] = true;  U_BC[zone] = u_val;
+      has_V_BC[zone] = true;  V_BC[zone] = v_val;
+      has_p_BC[zone] = false;
+    }
+    else if (type_str == "wall")
+    {
+      has_U_BC[zone] = true;  U_BC[zone] = 0.0;
+      has_V_BC[zone] = true;  V_BC[zone] = 0.0;
+      has_p_BC[zone] = false;
+    }
+    else if (type_str == "horizontal_slip_wall")
+    {
+      has_U_BC[zone] = false;
+      has_V_BC[zone] = true;  V_BC[zone] = 0.0;
+      has_p_BC[zone] = false;
+    }
+    else if (type_str == "vertical_slip_wall")
+    {
+      has_U_BC[zone] = true;  U_BC[zone] = 0.0;
+      has_V_BC[zone] = false;
+      has_p_BC[zone] = false;
+    }
+    else if (type_str == "pressure_outlet")
+    {
+      char p_opt[64];
+      snprintf(p_opt, sizeof(p_opt), "-bc_%d_p", zone);
+      double p_val = 0.0;
+      PetscBool p_flg = PETSC_FALSE;
+      PetscOptionsGetReal(NULL, NULL, p_opt, &p_val, &p_flg);
+      if (!p_flg)
+      {
+        std::cout << "ERROR: zone " << zone << " is 'pressure_outlet' but '" << p_opt << "' is not specified." << std::endl;
+        exit(1);
+      }
+      has_U_BC[zone] = false;
+      has_V_BC[zone] = false;
+      has_p_BC[zone] = true;  p_BC[zone] = p_val;
+    }
+    else
+    {
+      std::cout << "ERROR: zone " << zone << " has unknown -bc_" << zone << "_type '" << type_str << "'. Supported types: "
+                << "interior, velocity_inlet, wall, horizontal_slip_wall, vertical_slip_wall, pressure_outlet." << std::endl;
+      exit(1);
+    }
   }
 
   /*
    * Historical alternate B.C. configuration, kept for reference while cavity support
-   * is being worked out (relocated here, verbatim, from inc_problems.h):
+   * is being worked out (relocated here, verbatim, from an earlier version of
+   * inc_problems.h):
    *
    * static std::map<int, bool> has_U_BC = {{1, true}, {2, true}, {3, false}, {4, true}, {5, true}};
    * static std::map<int, double> U_BC = {{1, 1.0}, {2, 0.0}, {4, 0.0}, {5, 0.0}};
@@ -86,83 +157,70 @@ void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec b_UST
   for (std::map<int, std::vector<Face*> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
   {
     int zone = it->first;
-    switch (zone)
+    if (!is_interior_zone[zone])
     {
-      case 1:
-      case 5:
-      case 2:
-      case 3:
-      case 4:
+      for (unsigned int j = 0; j < (it->second).size(); j++)
       {
-        for (unsigned int j = 0; j < (it->second).size(); j++)
-        {
-          Face * face = (it->second).at(j);
-          long int cell_id1 = face->cell_id1();
-          double fface = ff[face->id()];
+        Face * face = (it->second).at(j);
+        long int cell_id1 = face->cell_id1();
+        double fface = ff[face->id()];
 
-          PetscInt col[1]; double val[1];
-          PetscInt r1 = cell_id1 - 1;
-          val[0] = fface; col[0] = r1;
+        PetscInt col[1]; double val[1];
+        PetscInt r1 = cell_id1 - 1;
+        val[0] = fface; col[0] = r1;
 
-          if (has_U_BC[zone])
-            bb_ustar[cell_id1-1] -= fface * U_BC[zone];
-          else
-            MatSetValues(M_USTAR, 1, &r1, 1, col, val, ADD_VALUES);
+        if (has_U_BC[zone])
+          bb_ustar[cell_id1-1] -= fface * U_BC[zone];
+        else
+          MatSetValues(M_USTAR, 1, &r1, 1, col, val, ADD_VALUES);
 
-          if (has_V_BC[zone])
-            bb_vstar[cell_id1-1] -= fface * V_BC[zone];
-          else
-            MatSetValues(M_VSTAR, 1, &r1, 1, col, val, ADD_VALUES);
-        }
+        if (has_V_BC[zone])
+          bb_vstar[cell_id1-1] -= fface * V_BC[zone];
+        else
+          MatSetValues(M_VSTAR, 1, &r1, 1, col, val, ADD_VALUES);
       }
-      break;
-
-      case 7:
+    }
+    else
+    {
+      for (unsigned int j = 0; j < (it->second).size(); j++)
       {
-        for (unsigned int j = 0; j < (it->second).size(); j++)
-        {
-          double GAMMA = 0.5;
+        double GAMMA = 0.5;
 
-          Face * face = (it->second).at(j);
-          long int face_id = face->id();
-          long int cell_id1 = face->cell_id1();
-          long int cell_id2 = face->cell_id2();
+        Face * face = (it->second).at(j);
+        long int face_id = face->id();
+        long int cell_id1 = face->cell_id1();
+        long int cell_id2 = face->cell_id2();
 
-          const FluentTriCell & cell_1 = cell_set.at(cell_id1-1);
-          const FluentTriCell & cell_2 = cell_set.at(cell_id2-1);
-          double v1 = cell_1.volume();
-          double v2 = cell_2.volume();
+        const FluentTriCell & cell_1 = cell_set.at(cell_id1-1);
+        const FluentTriCell & cell_2 = cell_set.at(cell_id2-1);
+        double v1 = cell_1.volume();
+        double v2 = cell_2.volume();
 
-          double area_f = face->area();
-          double alpha_12 = v2 / (v1 + v2);
-          double alpha_21 = 1.0 - alpha_12;
-          // cell 1
-          PetscInt r1 = cell_id1 - 1; PetscInt r2 = cell_id2 - 1;
-          PetscInt col[2];
-          double val[2], nval[2];
+        double area_f = face->area();
+        double alpha_12 = v2 / (v1 + v2);
+        double alpha_21 = 1.0 - alpha_12;
+        // cell 1
+        PetscInt r1 = cell_id1 - 1; PetscInt r2 = cell_id2 - 1;
+        PetscInt col[2];
+        double val[2], nval[2];
 
-          col[0] = r1; col[1] = r2;
-          val[0] = (1.0 - GAMMA) * ff[face_id] * alpha_12;
-          val[1] = (1.0 - GAMMA) * ff[face_id] * alpha_21;
-          if (ff[face_id] > 0.0)
-            val[0] += GAMMA * ff[face_id];
-          else
-            val[1] += GAMMA * ff[face_id];
+        col[0] = r1; col[1] = r2;
+        val[0] = (1.0 - GAMMA) * ff[face_id] * alpha_12;
+        val[1] = (1.0 - GAMMA) * ff[face_id] * alpha_21;
+        if (ff[face_id] > 0.0)
+          val[0] += GAMMA * ff[face_id];
+        else
+          val[1] += GAMMA * ff[face_id];
 
-          nval[0] = -val[0]; nval[1] = -val[1];
-          MatSetValues(M_USTAR, 1, &r1, 2, col, val, ADD_VALUES);
-          // copy & paste for VSTAR
-          MatSetValues(M_VSTAR, 1, &r1, 2, col, val, ADD_VALUES);
+        nval[0] = -val[0]; nval[1] = -val[1];
+        MatSetValues(M_USTAR, 1, &r1, 2, col, val, ADD_VALUES);
+        // copy & paste for VSTAR
+        MatSetValues(M_VSTAR, 1, &r1, 2, col, val, ADD_VALUES);
 
-          MatSetValues(M_USTAR, 1, &r2, 2, col, nval, ADD_VALUES);
-          // copy & paste for VSTAR
-          MatSetValues(M_VSTAR, 1, &r2, 2, col, nval, ADD_VALUES);
-        }
+        MatSetValues(M_USTAR, 1, &r2, 2, col, nval, ADD_VALUES);
+        // copy & paste for VSTAR
+        MatSetValues(M_VSTAR, 1, &r2, 2, col, nval, ADD_VALUES);
       }
-      break;
-
-      default:
-        std::cerr << "ERROR" << std::endl;
     }
   }
   VecRestoreArray(F_face_star, &ff);
@@ -191,55 +249,42 @@ void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec 
   for (std::map<int, std::vector<Face*> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
   {
     int zone = it->first;
-    switch (zone)
+    if (!is_interior_zone[zone])
     {
-      case 1:
-      case 5:
-      case 2:
-      case 3:
-      case 4:
+      for (unsigned int j = 0; j < (it->second).size(); j++)
       {
-        for (unsigned int j = 0; j < (it->second).size(); j++)
-        {
-          Face * face = (it->second).at(j);
-          long int cell_id1 = face->cell_id1();
-          Vec3d face_normal = face->faceNormal();
-          double u_face = has_U_BC[zone] ? U_BC[zone] : uu_star[cell_id1-1];
-          double v_face = has_V_BC[zone] ? V_BC[zone] : vv_star[cell_id1-1];
-          double fface = u_face * face_normal.x() + v_face * face_normal.y();
+        Face * face = (it->second).at(j);
+        long int cell_id1 = face->cell_id1();
+        Vec3d face_normal = face->faceNormal();
+        double u_face = has_U_BC[zone] ? U_BC[zone] : uu_star[cell_id1-1];
+        double v_face = has_V_BC[zone] ? V_BC[zone] : vv_star[cell_id1-1];
+        double fface = u_face * face_normal.x() + v_face * face_normal.y();
 
-          f0f[face->id()] = fface;
-          bb_p[cell_id1-1] += fface / DT;
-        }
+        f0f[face->id()] = fface;
+        bb_p[cell_id1-1] += fface / DT;
       }
-      break;
-
-      case 7:
+    }
+    else
+    {
+      for (unsigned int j = 0; j < (it->second).size(); j++)
       {
-        for (unsigned int j = 0; j < (it->second).size(); j++)
-        {
-          Face * face = (it->second).at(j);
-          double r = face->distance_ratio();
+        Face * face = (it->second).at(j);
+        double r = face->distance_ratio();
 
-          long int cell_id1 = face->cell_id1();
-          long int cell_id2 = face->cell_id2();
+        long int cell_id1 = face->cell_id1();
+        long int cell_id2 = face->cell_id2();
 
-          double u_face = uu_star[cell_id1-1] * (1.0 - r) + uu_star[cell_id2-1] * r;
-          double v_face = vv_star[cell_id1-1] * (1.0 - r) + vv_star[cell_id2-1] * r;
+        double u_face = uu_star[cell_id1-1] * (1.0 - r) + uu_star[cell_id2-1] * r;
+        double v_face = vv_star[cell_id1-1] * (1.0 - r) + vv_star[cell_id2-1] * r;
 
-          Vec3d face_normal = face->faceNormal();
+        Vec3d face_normal = face->faceNormal();
 
-          double fface = u_face * face_normal.x() + v_face * face_normal.y();
-          f0f[face->id()] = fface;
+        double fface = u_face * face_normal.x() + v_face * face_normal.y();
+        f0f[face->id()] = fface;
 
-          bb_p[cell_id1-1] += fface / DT;
-          bb_p[cell_id2-1] -= fface / DT;
-        }
+        bb_p[cell_id1-1] += fface / DT;
+        bb_p[cell_id2-1] -= fface / DT;
       }
-      break;
-
-      default:
-        std::cerr << "ERROR" << std::endl;
     }
 
     // anchor point
@@ -263,60 +308,47 @@ void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Ve
   for (std::map<int, std::vector<Face*> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
   {
     int zone = it->first;
-    switch (zone)
+    if (!is_interior_zone[zone])
     {
-      case 1:
-      case 5:
-      case 2:
-      case 3:
-      case 4:
+      for (unsigned int j = 0; j < (it->second).size(); j++)
       {
-        for (unsigned int j = 0; j < (it->second).size(); j++)
-        {
-          // Copy from F_0f_star (as boundary conditions have been setup there)
-          Face * face = (it->second).at(j);
-          ff[face->id()] = f0f[face->id()];
-        }
+        // Copy from F_0f_star (as boundary conditions have been setup there)
+        Face * face = (it->second).at(j);
+        ff[face->id()] = f0f[face->id()];
       }
-      break;
-
-      case 7:
+    }
+    else
+    {
+      for (unsigned int j = 0; j < (it->second).size(); j++)
       {
-        for (unsigned int j = 0; j < (it->second).size(); j++)
-        {
-          Face * face = (it->second).at(j);
-          long int cell_id1 = face->cell_id1();
-          long int cell_id2 = face->cell_id2();
+        Face * face = (it->second).at(j);
+        long int cell_id1 = face->cell_id1();
+        long int cell_id2 = face->cell_id2();
 
-          const FluentTriCell & cell_1 = cell_set.at(cell_id1-1);
-          const FluentTriCell & cell_2 = cell_set.at(cell_id2-1);
-          double v1 = cell_1.volume();
-          double v2 = cell_2.volume();
-          const Point & ct1 = cell_1.centroid();
-          const Point & ct2 = cell_2.centroid();
-          Vec3d ct_to_ct = ct2 - ct1;
-          double distance = ct_to_ct.norm();
-          Vec3d n1 = ct_to_ct.unitVector();
+        const FluentTriCell & cell_1 = cell_set.at(cell_id1-1);
+        const FluentTriCell & cell_2 = cell_set.at(cell_id2-1);
+        double v1 = cell_1.volume();
+        double v2 = cell_2.volume();
+        const Point & ct1 = cell_1.centroid();
+        const Point & ct2 = cell_2.centroid();
+        Vec3d ct_to_ct = ct2 - ct1;
+        double distance = ct_to_ct.norm();
+        Vec3d n1 = ct_to_ct.unitVector();
 
-          Vec3d face_normal = face->faceNormal();
-          Vec3d nf = face_normal.unitVector();
-          Vec3d n2 = nf - n1;
+        Vec3d face_normal = face->faceNormal();
+        Vec3d nf = face_normal.unitVector();
+        Vec3d n2 = nf - n1;
 
-          double area_f = face->area();
-          double alpha_12 = v2 / (v1 + v2);
-          double alpha_21 = 1.0 - alpha_12;
+        double area_f = face->area();
+        double alpha_12 = v2 / (v1 + v2);
+        double alpha_21 = 1.0 - alpha_12;
 
-          double cross_diff = alpha_12 * (grad_p_x[cell_id1-1] * n2.x() + grad_p_y[cell_id1-1] * n2.y())
-                            + alpha_21 * (grad_p_x[cell_id2-1] * n2.x() + grad_p_y[cell_id2-1] * n2.y());
-          double pressure_correction = area_f * ((pp[cell_id2-1] - pp[cell_id1-1]) / distance + cross_diff);
+        double cross_diff = alpha_12 * (grad_p_x[cell_id1-1] * n2.x() + grad_p_y[cell_id1-1] * n2.y())
+                          + alpha_21 * (grad_p_x[cell_id2-1] * n2.x() + grad_p_y[cell_id2-1] * n2.y());
+        double pressure_correction = area_f * ((pp[cell_id2-1] - pp[cell_id1-1]) / distance + cross_diff);
 
-          ff[face->id()] = f0f[face->id()] - DT * pressure_correction;
-        }
+        ff[face->id()] = f0f[face->id()] - DT * pressure_correction;
       }
-      break;
-
-      default:
-        std::cerr << "ERROR" << std::endl;
     }
   }
   VecRestoreArray(F_face_star, &ff); VecRestoreArray(F_0f_star, &f0f); VecRestoreArray(p, &pp);

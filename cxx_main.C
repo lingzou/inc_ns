@@ -64,12 +64,14 @@ int main(int argc, char **argv)
     exit(1);
   }
 
-  setupBoundaryConditions(problem_name);
-
   PETSC_APPCTX app;
 
   app.p_mesh = new FluentTwoDMesh();
   app.p_mesh->createMeshFromFile(mesh_file, false, true);
+
+  // Per-zone B.C.s (-bc_<zone>_type ...) are read once the mesh's zone IDs are known,
+  // so every boundary zone the mesh actually has can be checked against the input file.
+  setupBoundaryConditions(app.p_mesh);
 
   ExodusOutputContext * exoCtx = createExodusOutput(app.p_mesh, "output/output.e");
 
@@ -103,87 +105,74 @@ int main(int argc, char **argv)
   {
     int zone = it->first;
     std::cout << "zone = " << zone << std::endl;
-    switch (zone)
+    if (!is_interior_zone[zone])
     {
-      case 1:
-      case 2: // RIGHT
-      case 3: // BOTTOM
-      case 4: // LEFT
-      case 5: // TOP
+      for (unsigned int j = 0; j < (it->second).size(); j++)
       {
-        for (unsigned int j = 0; j < (it->second).size(); j++)
-        {
-          Face * face = (it->second)[j];
-          long int cell_id1 = face->cell_id1();
-          Vec3d face_normal = face->faceNormal();
-          double v1 = cell_set.at(cell_id1-1).volume();
+        Face * face = (it->second)[j];
+        long int cell_id1 = face->cell_id1();
+        Vec3d face_normal = face->faceNormal();
+        double v1 = cell_set.at(cell_id1-1).volume();
 
-          // \grad phi = 1/v * \Sigma phi_face \vec{A_face}; equation on page 244 of Ref. [1], following equation (10).
-          // If has boundary value, it goes to the BC contribution; otherwise,
-          // we assuming d_phi/dn = 0, such that phi_BC = phi_cell, and this boundary contributes as a cell value
-          if (has_U_BC[zone])
-            grad_u_star[cell_id1-1].addBCContribution(U_BC[zone] * face_normal.x() / v1, U_BC[zone] * face_normal.y() / v1);
-          else // u face = u cell
-            grad_u_star[cell_id1-1].addCoef(0, cell_id1, face_normal.x() / v1, face_normal.y() / v1);
+        // \grad phi = 1/v * \Sigma phi_face \vec{A_face}; equation on page 244 of Ref. [1], following equation (10).
+        // If has boundary value, it goes to the BC contribution; otherwise,
+        // we assuming d_phi/dn = 0, such that phi_BC = phi_cell, and this boundary contributes as a cell value
+        if (has_U_BC[zone])
+          grad_u_star[cell_id1-1].addBCContribution(U_BC[zone] * face_normal.x() / v1, U_BC[zone] * face_normal.y() / v1);
+        else // u face = u cell
+          grad_u_star[cell_id1-1].addCoef(0, cell_id1, face_normal.x() / v1, face_normal.y() / v1);
 
-          if (has_V_BC[zone])
-            grad_v_star[cell_id1-1].addBCContribution(V_BC[zone] * face_normal.x() / v1, V_BC[zone] * face_normal.y() / v1);
-          else
-            grad_v_star[cell_id1-1].addCoef(0, cell_id1, face_normal.x() / v1, face_normal.y() / v1);
+        if (has_V_BC[zone])
+          grad_v_star[cell_id1-1].addBCContribution(V_BC[zone] * face_normal.x() / v1, V_BC[zone] * face_normal.y() / v1);
+        else
+          grad_v_star[cell_id1-1].addCoef(0, cell_id1, face_normal.x() / v1, face_normal.y() / v1);
 
-          if (has_p_BC[zone])
-            grad_p[cell_id1-1].addBCContribution(p_BC[zone] * face_normal.x() / v1, p_BC[zone] * face_normal.y() / v1);
-          else
-            grad_p[cell_id1-1].addCoef(0, cell_id1, face_normal.x() / v1, face_normal.y() / v1);
-        }
+        if (has_p_BC[zone])
+          grad_p[cell_id1-1].addBCContribution(p_BC[zone] * face_normal.x() / v1, p_BC[zone] * face_normal.y() / v1);
+        else
+          grad_p[cell_id1-1].addCoef(0, cell_id1, face_normal.x() / v1, face_normal.y() / v1);
       }
-      break;
-
-      case 7:
+    }
+    else
+    {
+      for (unsigned int j = 0; j < (it->second).size(); j++)
       {
-        for (unsigned int j = 0; j < (it->second).size(); j++)
-        {
-          Face * face = (it->second)[j];
-          long int cell_id1 = face->cell_id1();
-          long int cell_id2 = face->cell_id2();
-          double v1 = cell_set.at(cell_id1-1).volume();
-          double v2 = cell_set.at(cell_id2-1).volume();
-          Vec3d face_normal = face->faceNormal();  // face norm is always pointing from cell 1 to cell 2, this is how mesh was prepared
+        Face * face = (it->second)[j];
+        long int cell_id1 = face->cell_id1();
+        long int cell_id2 = face->cell_id2();
+        double v1 = cell_set.at(cell_id1-1).volume();
+        double v2 = cell_set.at(cell_id2-1).volume();
+        Vec3d face_normal = face->faceNormal();  // face norm is always pointing from cell 1 to cell 2, this is how mesh was prepared
 
-          // phi_face = (v2 * phi_1 + v1 * phi_2) / (v1 + v2); equation (5) of ref. [1]
+        // phi_face = (v2 * phi_1 + v1 * phi_2) / (v1 + v2); equation (5) of ref. [1]
 
-          double alpha_12 = v2 / (v1 + v2);
-          double alpha_21 = 1.0 - alpha_12;
-          // Cell 1
-          grad_u_star[cell_id1-1].addCoef(0, cell_id1, alpha_12 * face_normal.x() / v1, alpha_12 * face_normal.y() / v1);
-          grad_v_star[cell_id1-1].addCoef(0, cell_id1, alpha_12 * face_normal.x() / v1, alpha_12 * face_normal.y() / v1);
-               grad_p[cell_id1-1].addCoef(0, cell_id1, alpha_12 * face_normal.x() / v1, alpha_12 * face_normal.y() / v1);
+        double alpha_12 = v2 / (v1 + v2);
+        double alpha_21 = 1.0 - alpha_12;
+        // Cell 1
+        grad_u_star[cell_id1-1].addCoef(0, cell_id1, alpha_12 * face_normal.x() / v1, alpha_12 * face_normal.y() / v1);
+        grad_v_star[cell_id1-1].addCoef(0, cell_id1, alpha_12 * face_normal.x() / v1, alpha_12 * face_normal.y() / v1);
+             grad_p[cell_id1-1].addCoef(0, cell_id1, alpha_12 * face_normal.x() / v1, alpha_12 * face_normal.y() / v1);
 
-          grad_u_star[cell_id1-1].size++;
-          grad_v_star[cell_id1-1].size++;
-               grad_p[cell_id1-1].size++;
+        grad_u_star[cell_id1-1].size++;
+        grad_v_star[cell_id1-1].size++;
+             grad_p[cell_id1-1].size++;
 
-          grad_u_star[cell_id1-1].addCoef(grad_u_star[cell_id1-1].size, cell_id2, alpha_21 * face_normal.x() / v1, alpha_21 * face_normal.y() / v1);
-          grad_v_star[cell_id1-1].addCoef(grad_v_star[cell_id1-1].size, cell_id2, alpha_21 * face_normal.x() / v1, alpha_21 * face_normal.y() / v1);
-               grad_p[cell_id1-1].addCoef(     grad_p[cell_id1-1].size, cell_id2, alpha_21 * face_normal.x() / v1, alpha_21 * face_normal.y() / v1);
-          // Cell 2
-          grad_u_star[cell_id2-1].addCoef(0, cell_id2, -alpha_21 * face_normal.x() / v2, -alpha_21 * face_normal.y() / v2);
-          grad_v_star[cell_id2-1].addCoef(0, cell_id2, -alpha_21 * face_normal.x() / v2, -alpha_21 * face_normal.y() / v2);
-               grad_p[cell_id2-1].addCoef(0, cell_id2, -alpha_21 * face_normal.x() / v2, -alpha_21 * face_normal.y() / v2);
+        grad_u_star[cell_id1-1].addCoef(grad_u_star[cell_id1-1].size, cell_id2, alpha_21 * face_normal.x() / v1, alpha_21 * face_normal.y() / v1);
+        grad_v_star[cell_id1-1].addCoef(grad_v_star[cell_id1-1].size, cell_id2, alpha_21 * face_normal.x() / v1, alpha_21 * face_normal.y() / v1);
+             grad_p[cell_id1-1].addCoef(     grad_p[cell_id1-1].size, cell_id2, alpha_21 * face_normal.x() / v1, alpha_21 * face_normal.y() / v1);
+        // Cell 2
+        grad_u_star[cell_id2-1].addCoef(0, cell_id2, -alpha_21 * face_normal.x() / v2, -alpha_21 * face_normal.y() / v2);
+        grad_v_star[cell_id2-1].addCoef(0, cell_id2, -alpha_21 * face_normal.x() / v2, -alpha_21 * face_normal.y() / v2);
+             grad_p[cell_id2-1].addCoef(0, cell_id2, -alpha_21 * face_normal.x() / v2, -alpha_21 * face_normal.y() / v2);
 
-          grad_u_star[cell_id2-1].size++;
-          grad_v_star[cell_id2-1].size++;
-               grad_p[cell_id2-1].size++;
+        grad_u_star[cell_id2-1].size++;
+        grad_v_star[cell_id2-1].size++;
+             grad_p[cell_id2-1].size++;
 
-          grad_u_star[cell_id2-1].addCoef(grad_u_star[cell_id2-1].size, cell_id1, -alpha_12 * face_normal.x() / v2, -alpha_12 * face_normal.y() / v2);
-          grad_v_star[cell_id2-1].addCoef(grad_v_star[cell_id2-1].size, cell_id1, -alpha_12 * face_normal.x() / v2, -alpha_12 * face_normal.y() / v2);
-               grad_p[cell_id2-1].addCoef(     grad_p[cell_id2-1].size, cell_id1, -alpha_12 * face_normal.x() / v2, -alpha_12 * face_normal.y() / v2);
-        }
+        grad_u_star[cell_id2-1].addCoef(grad_u_star[cell_id2-1].size, cell_id1, -alpha_12 * face_normal.x() / v2, -alpha_12 * face_normal.y() / v2);
+        grad_v_star[cell_id2-1].addCoef(grad_v_star[cell_id2-1].size, cell_id1, -alpha_12 * face_normal.x() / v2, -alpha_12 * face_normal.y() / v2);
+             grad_p[cell_id2-1].addCoef(     grad_p[cell_id2-1].size, cell_id1, -alpha_12 * face_normal.x() / v2, -alpha_12 * face_normal.y() / v2);
       }
-      break;
-
-      default:
-        std::cerr << "ERROR" << std::endl;
     }
   }
   std::cout << "GRAD END" << std::endl;
@@ -290,62 +279,54 @@ int main(int argc, char **argv)
   {
     //double VISC = 1.0;
     int zone = it->first;
-    switch (zone)
+    if (!is_interior_zone[zone])
     {
-      case 1:
-      case 5:
-      case 2:
-      case 3:
-      case 4:
+      std::cout << "zone = " << zone << std::endl;
+      for (unsigned int j = 0; j < (it->second).size(); j++)
       {
-        std::cout << "zone = " << zone << std::endl;
-        for (unsigned int j = 0; j < (it->second).size(); j++)
+        Face * face = (it->second).at(j);
+        long int cell_id1 = face->cell_id1();
+        long int cell_id2 = face->cell_id2();
+
+        long int cell_id = (cell_id1 > 0) ? cell_id1 : cell_id2;
+        const FluentTriCell & cell = cell_set.at(cell_id-1);
+
+        long int node_id1 = face->node_id1();
+        long int node_id2 = face->node_id2();
+
+        Point pt0 = cell.centroid();
+        Point pt1 = node_set.at(node_id1-1)->point();
+        Point pt2 = node_set.at(node_id2-1)->point();
+        double distance = app.p_mesh->node_to_face_distance(pt0, pt1, pt2);
+
+        PetscInt row = cell_id - 1;
+        PetscInt col[1]; col[0] = row;
+        double val[1];
+        val[0] = VISC * face->area() / distance;
+
+        if (has_U_BC[zone])
         {
-          Face * face = (it->second).at(j);
-          long int cell_id1 = face->cell_id1();
-          long int cell_id2 = face->cell_id2();
-
-          long int cell_id = (cell_id1 > 0) ? cell_id1 : cell_id2;
-          const FluentTriCell & cell = cell_set.at(cell_id-1);
-
-          long int node_id1 = face->node_id1();
-          long int node_id2 = face->node_id2();
-
-          Point pt0 = cell.centroid();
-          Point pt1 = node_set.at(node_id1-1)->point();
-          Point pt2 = node_set.at(node_id2-1)->point();
-          double distance = app.p_mesh->node_to_face_distance(pt0, pt1, pt2);
-
-          PetscInt row = cell_id - 1;
-          PetscInt col[1]; col[0] = row;
-          double val[1];
-          val[0] = VISC * face->area() / distance;
-
-          if (has_U_BC[zone])
-          {
-            MatSetValues(M_USTAR_FIXED, 1, &row, 1, col, val, ADD_VALUES);
-            bb_ustar[row] += VISC * face->area() / distance * U_BC[zone];
-          }
-          if (has_V_BC[zone])
-          {
-            MatSetValues(M_VSTAR_FIXED, 1, &row, 1, col, val, ADD_VALUES);
-            bb_vstar[row] += VISC * face->area() / distance * V_BC[zone];
-          }
-          if (has_p_BC[zone])
-          {
-            val[0] = -face->area() / distance;
-            MatSetValues(M_P, 1, &row, 1, col, val, ADD_VALUES);
-            bb_p[row]     -= face->area() / distance * p_BC[zone];
-          }
+          MatSetValues(M_USTAR_FIXED, 1, &row, 1, col, val, ADD_VALUES);
+          bb_ustar[row] += VISC * face->area() / distance * U_BC[zone];
+        }
+        if (has_V_BC[zone])
+        {
+          MatSetValues(M_VSTAR_FIXED, 1, &row, 1, col, val, ADD_VALUES);
+          bb_vstar[row] += VISC * face->area() / distance * V_BC[zone];
+        }
+        if (has_p_BC[zone])
+        {
+          val[0] = -face->area() / distance;
+          MatSetValues(M_P, 1, &row, 1, col, val, ADD_VALUES);
+          bb_p[row]     -= face->area() / distance * p_BC[zone];
         }
       }
-      break;
-
-      case 7:
+    }
+    else
+    {
+      std::cout << "zone = " << zone << std::endl;
+      for (unsigned int j = 0; j < (it->second).size(); j++)
       {
-        std::cout << "zone = " << zone << std::endl;
-        for (unsigned int j = 0; j < (it->second).size(); j++)
-        {
           Face * face = (it->second).at(j);
           long int cell_id1 = face->cell_id1();
           long int cell_id2 = face->cell_id2();
@@ -481,12 +462,7 @@ int main(int argc, char **argv)
           bc_contribution = -area_f * alpha_21 * (grad_p[cell_id2-1].bc_x * n2.x() + grad_p[cell_id2-1].bc_y * n2.y());
           bb_p[r1] += bc_contribution;
           bb_p[r2] -= bc_contribution;
-        }
       }
-      break;
-
-      default:
-        std::cerr << "ERROR" << std::endl;
     }
   }
 
