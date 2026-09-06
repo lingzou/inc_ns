@@ -26,7 +26,7 @@ struct ExodusOutputContext
 // right after the mesh is loaded from file.
 ExodusOutputContext * createExodusOutput(FluentTwoDMesh * p_mesh, const char * filename);
 
-// Writes one time step's u_star/v_star/pressure element (zonal) variables, and, only
+// Writes one time step's vel_x/vel_y/pressure element (zonal) variables, and, only
 // when writeStreamFunction is true, the StreamFunction nodal variable computed from
 // F_face_star (mirrors the same computation writeOutputFile does for VTU).
 void writeExodusStep(ExodusOutputContext * ctx, FluentTwoDMesh * p_mesh, int step, double time,

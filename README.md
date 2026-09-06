@@ -1,5 +1,7 @@
 # inc_ns
 
+![Flow past a cylinder](media/cylinder.gif)
+
 Cell-centered finite-volume solver for 2D incompressible Navier-Stokes flow on
 unstructured triangular meshes, following:
 

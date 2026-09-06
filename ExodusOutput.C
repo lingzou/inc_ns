@@ -104,8 +104,8 @@ ExodusOutputContext * createExodusOutput(FluentTwoDMesh * p_mesh, const char * f
   for (PetscInt c = ctx->cStart; c < ctx->cEnd; c++)
     DMLabelSetValue(cellSetLabel, c, 1);
 
-  ctx->dmU  = makeFieldDM(ctx->baseDM, "u_star", ctx->cStart, ctx->cEnd);
-  ctx->dmV  = makeFieldDM(ctx->baseDM, "v_star", ctx->cStart, ctx->cEnd);
+  ctx->dmU  = makeFieldDM(ctx->baseDM, "vel_x", ctx->cStart, ctx->cEnd);
+  ctx->dmV  = makeFieldDM(ctx->baseDM, "vel_y", ctx->cStart, ctx->cEnd);
   ctx->dmP  = makeFieldDM(ctx->baseDM, "pressure", ctx->cStart, ctx->cEnd);
   ctx->dmSF = makeFieldDM(ctx->baseDM, "StreamFunction", ctx->vStart, ctx->vEnd);
 
@@ -119,7 +119,7 @@ ExodusOutputContext * createExodusOutput(FluentTwoDMesh * p_mesh, const char * f
   // The Exodus/netCDF schema needs its variable table declared upfront -- VecView
   // later looks up the Vec's own name against this table, it does not infer variables
   // from a DM's section field names.
-  const char * zonalNames[3] = {"u_star", "v_star", "pressure"};
+  const char * zonalNames[3] = {"vel_x", "vel_y", "pressure"};
   const char * nodalNames[1] = {"StreamFunction"};
   PetscViewerExodusIISetZonalVariable(ctx->viewer, 3);
   PetscViewerExodusIISetZonalVariableNames(ctx->viewer, zonalNames);
@@ -139,8 +139,8 @@ void writeExodusStep(ExodusOutputContext * ctx, FluentTwoDMesh * p_mesh, int ste
   VecGetArrayRead(v, &vv);
   VecGetArrayRead(p, &pp);
 
-  writeFieldValues(ctx->dmU, ctx->cStart, ctx->cEnd, uu, "u_star", ctx->viewer, step, time);
-  writeFieldValues(ctx->dmV, ctx->cStart, ctx->cEnd, vv, "v_star", ctx->viewer, step, time);
+  writeFieldValues(ctx->dmU, ctx->cStart, ctx->cEnd, uu, "vel_x", ctx->viewer, step, time);
+  writeFieldValues(ctx->dmV, ctx->cStart, ctx->cEnd, vv, "vel_y", ctx->viewer, step, time);
   writeFieldValues(ctx->dmP, ctx->cStart, ctx->cEnd, pp, "pressure", ctx->viewer, step, time);
 
   VecRestoreArrayRead(u, &uu);

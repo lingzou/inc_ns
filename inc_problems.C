@@ -450,7 +450,7 @@ void writeOutputFile(const std::string & output_prefix, int time_step, FluentTwo
 
   PetscScalar * uu;
   VecGetArray(u, &uu);
-  out_string_stream << "        <DataArray type=\"Float32\" Name=\"u_star\" format=\"ascii\">" << "\n";
+  out_string_stream << "        <DataArray type=\"Float32\" Name=\"vel_x\" format=\"ascii\">" << "\n";
   for(unsigned int i = 0; i < cell_set.size(); i++)
     out_string_stream << "          " << uu[i] << "\n";
   out_string_stream << "        </DataArray>" << "\n";
@@ -458,7 +458,7 @@ void writeOutputFile(const std::string & output_prefix, int time_step, FluentTwo
 
   PetscScalar * vv;
   VecGetArray(v, &vv);
-  out_string_stream << "        <DataArray type=\"Float32\" Name=\"v_star\" format=\"ascii\">" << "\n";
+  out_string_stream << "        <DataArray type=\"Float32\" Name=\"vel_y\" format=\"ascii\">" << "\n";
   for(unsigned int i = 0; i < cell_set.size(); i++)
     out_string_stream << "          " << vv[i] << "\n";
   out_string_stream << "        </DataArray>" << "\n";

@@ -633,7 +633,8 @@ int main(int argc, char **argv)
     // End of time step
 
     bool computeStreamFunction = (time_step == N_TIMESTEP-1);
-    writeOutputFile(output_prefix, time_step, app.p_mesh, u, v, p, F_face_star, computeStreamFunction);
+    // drop off VTU support
+    // writeOutputFile(output_prefix, time_step, app.p_mesh, u, v, p, F_face_star, computeStreamFunction);
     writeExodusStep(exoCtx, app.p_mesh, time_step, (time_step+1)*DT, u, v, p, F_face_star, computeStreamFunction);
     // std::cout << "Time Step " << time_step << " end <<<<<<<<<" << std::endl << std::endl;
     std::cout << "  [ok]\n";
