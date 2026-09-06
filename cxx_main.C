@@ -259,17 +259,18 @@ int main(int argc, char **argv)
 
   MatCreateSeqAIJ(PETSC_COMM_SELF, n_Cell, n_Cell, 10, NULL, &M_USTAR_FIXED);  // 10 is the max possible neighbor cell numbers for a cell
   MatSetOption(M_USTAR_FIXED, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
-  MatCreateSeqAIJ(PETSC_COMM_SELF, n_Cell, n_Cell, 10, NULL, &M_USTAR);  // 10 is the max possible neighbor cell numbers for a cell
-  MatSetOption(M_USTAR, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
 
   MatCreateSeqAIJ(PETSC_COMM_SELF, n_Cell, n_Cell, 10, NULL, &M_VSTAR_FIXED);  // 10 is the max possible neighbor cell numbers for a cell
   MatSetOption(M_VSTAR_FIXED, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
-  MatCreateSeqAIJ(PETSC_COMM_SELF, n_Cell, n_Cell, 10, NULL, &M_VSTAR);  // 10 is the max possible neighbor cell numbers for a cell
-  MatSetOption(M_VSTAR, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
 
   MatCreateSeqAIJ(PETSC_COMM_SELF, n_Cell, n_Cell, 10, NULL, &M_P);  // 10 is the max possible neighbor cell numbers for a cell
   MatSetOption(M_P, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
 
+  // M_USTAR/M_VSTAR are created once (via MatDuplicate from the assembled *_FIXED
+  // matrices, once those are finalized below) and reused for the whole run -- each
+  // Picard iteration resets their values with MatCopy() rather than MatDuplicate()'ing
+  // a brand new matrix every time, which used to leak one Mat per iteration (up to
+  // ~100/timestep, never MatDestroy()'d) and paid full allocation cost on top.
   KSPCreate(PETSC_COMM_WORLD, &ksp_USTAR);
   KSPCreate(PETSC_COMM_WORLD, &ksp_VSTAR);
   KSPCreate(PETSC_COMM_WORLD, &ksp_P);
@@ -518,6 +519,22 @@ int main(int argc, char **argv)
     MatZeroRows(M_P, 1, row, 1.0, PETSC_NULL, PETSC_NULL);
   }
 
+  // Seed the reusable M_USTAR/M_VSTAR from the now-finalized fixed matrices (see the
+  // comment by their KSPCreate calls above), and set each KSP's operators/options once
+  // here rather than on every solve -- M_P's operator/values never change again after
+  // this point, and M_USTAR/M_VSTAR keep the same Mat handle for the rest of the run
+  // (only their values change, via MatCopy each Picard iteration), so PETSc picks up
+  // those value changes automatically on the next KSPSolve without re-calling
+  // KSPSetOperators.
+  MatDuplicate(M_USTAR_FIXED, MAT_COPY_VALUES, &M_USTAR);
+  MatDuplicate(M_VSTAR_FIXED, MAT_COPY_VALUES, &M_VSTAR);
+  KSPSetOperators(ksp_USTAR, M_USTAR, M_USTAR);
+  KSPSetFromOptions(ksp_USTAR);
+  KSPSetOperators(ksp_VSTAR, M_VSTAR, M_VSTAR);
+  KSPSetFromOptions(ksp_VSTAR);
+  KSPSetOperators(ksp_P, M_P, M_P);
+  KSPSetFromOptions(ksp_P);
+
   VecRestoreArray(b_USTAR, &bb_ustar);
   VecRestoreArray(b_VSTAR, &bb_vstar);
   VecRestoreArray(b_p, &bb_p);
@@ -536,18 +553,14 @@ int main(int argc, char **argv)
     int N_it_max = 100;
     for (int i = 0; i < N_it_max; i++)
     {
-      MatDuplicate(M_USTAR_FIXED, MAT_COPY_VALUES, &M_USTAR);
-      MatDuplicate(M_VSTAR_FIXED, MAT_COPY_VALUES, &M_VSTAR);
+      MatCopy(M_USTAR_FIXED, M_USTAR, SAME_NONZERO_PATTERN);
+      MatCopy(M_VSTAR_FIXED, M_VSTAR, SAME_NONZERO_PATTERN);
 
       // update advection operator to solve u_star and v_star
       VecCopy(b_USTAR, b_USTAR_FINAL);
       VecCopy(b_VSTAR, b_VSTAR_FINAL);
       updateAdvectionOperator(app.p_mesh, F_face_star, b_USTAR_FINAL, b_VSTAR_FINAL, M_USTAR, M_VSTAR);
 
-      KSPSetOperators(ksp_USTAR, M_USTAR, M_USTAR);
-      KSPSetFromOptions(ksp_USTAR);
-      KSPSetOperators(ksp_VSTAR, M_VSTAR, M_VSTAR);
-      KSPSetFromOptions(ksp_VSTAR);
       KSPSolve(ksp_USTAR, b_USTAR_FINAL, u_STAR);
       KSPSolve(ksp_VSTAR, b_VSTAR_FINAL, v_STAR);
 
@@ -556,8 +569,6 @@ int main(int argc, char **argv)
       updateMassVeclocities(app.p_mesh, u_STAR, v_STAR, F_0f_star, b_p_FINAL);
 
       // Solve pressure equation
-      KSPSetOperators(ksp_P, M_P, M_P);
-      KSPSetFromOptions(ksp_P);
       KSPSolve(ksp_P, b_p_FINAL, p);
 
       // Compute grad_P from solved p
@@ -582,8 +593,8 @@ int main(int argc, char **argv)
       }
     }
     // After F_f and P are converged, solve u_star and v_star again as the final solutions for u and v
-    MatDuplicate(M_USTAR_FIXED, MAT_COPY_VALUES, &M_USTAR);
-    MatDuplicate(M_VSTAR_FIXED, MAT_COPY_VALUES, &M_VSTAR);
+    MatCopy(M_USTAR_FIXED, M_USTAR, SAME_NONZERO_PATTERN);
+    MatCopy(M_VSTAR_FIXED, M_VSTAR, SAME_NONZERO_PATTERN);
     // update advection operator to solve u_star and v_star
     VecCopy(b_USTAR, b_USTAR_FINAL);
     VecCopy(b_VSTAR, b_VSTAR_FINAL);
@@ -592,10 +603,6 @@ int main(int argc, char **argv)
     updatePressureGradientAsSource(app.p_mesh, b_USTAR_FINAL, b_VSTAR_FINAL, grad_p_x, grad_p_y);
 
     // Solve u_star and v_star considering pressure gradients
-    KSPSetOperators(ksp_USTAR, M_USTAR, M_USTAR);
-    KSPSetFromOptions(ksp_USTAR);
-    KSPSetOperators(ksp_VSTAR, M_VSTAR, M_VSTAR);
-    KSPSetFromOptions(ksp_VSTAR);
     KSPSolve(ksp_USTAR, b_USTAR_FINAL, u_STAR);  // now u_star is u^(n+1)
     KSPSolve(ksp_VSTAR, b_VSTAR_FINAL, v_STAR);  // now v_star is v^(n+1)
 
