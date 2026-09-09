@@ -12,7 +12,7 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INC_EXEC = os.path.join(PROJECT_ROOT, "build", "inc_exec")
 INPUT_DIR = os.path.join(PROJECT_ROOT, "input")
 POLL_MS = 300

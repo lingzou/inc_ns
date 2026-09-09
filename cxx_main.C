@@ -275,6 +275,16 @@ int main(int argc, char **argv)
   KSPCreate(PETSC_COMM_WORLD, &ksp_VSTAR);
   KSPCreate(PETSC_COMM_WORLD, &ksp_P);
   KSPSetType(ksp_P, KSPCG);
+  // M_P discretizes a Poisson-like pressure equation, so PCGAMG is probably the best preconditioner
+  PC pc_P;
+  KSPGetPC(ksp_P, &pc_P);
+  PCSetType(pc_P, PCGAMG);
+  // Distinct options prefixes let each solve's -ksp_type/-pc_type/etc. be tuned
+  // independently from the command line or input file (e.g. "-p_pc_type gamg"),
+  // instead of one shared, unprefixed options namespace covering all three KSPs.
+  KSPSetOptionsPrefix(ksp_USTAR, "ustar_");
+  KSPSetOptionsPrefix(ksp_VSTAR, "vstar_");
+  KSPSetOptionsPrefix(ksp_P, "p_");
 
   std::cout << "KSP END SETUP" << std::endl;
 
