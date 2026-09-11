@@ -107,6 +107,7 @@ ExodusOutputContext * createExodusOutput(FluentTwoDMesh * p_mesh, const char * f
   ctx->dmU  = makeFieldDM(ctx->baseDM, "vel_x", ctx->cStart, ctx->cEnd);
   ctx->dmV  = makeFieldDM(ctx->baseDM, "vel_y", ctx->cStart, ctx->cEnd);
   ctx->dmP  = makeFieldDM(ctx->baseDM, "pressure", ctx->cStart, ctx->cEnd);
+  ctx->dmT  = makeFieldDM(ctx->baseDM, "T", ctx->cStart, ctx->cEnd);
   ctx->dmSF = makeFieldDM(ctx->baseDM, "StreamFunction", ctx->vStart, ctx->vEnd);
 
   PetscViewerExodusIIOpen(PETSC_COMM_WORLD, filename, FILE_MODE_WRITE, &ctx->viewer);
@@ -119,9 +120,9 @@ ExodusOutputContext * createExodusOutput(FluentTwoDMesh * p_mesh, const char * f
   // The Exodus/netCDF schema needs its variable table declared upfront -- VecView
   // later looks up the Vec's own name against this table, it does not infer variables
   // from a DM's section field names.
-  const char * zonalNames[3] = {"vel_x", "vel_y", "pressure"};
+  const char * zonalNames[4] = {"vel_x", "vel_y", "pressure", "T"};
   const char * nodalNames[1] = {"StreamFunction"};
-  PetscViewerExodusIISetZonalVariable(ctx->viewer, 3);
+  PetscViewerExodusIISetZonalVariable(ctx->viewer, 4);
   PetscViewerExodusIISetZonalVariableNames(ctx->viewer, zonalNames);
   PetscViewerExodusIISetNodalVariable(ctx->viewer, 1);
   PetscViewerExodusIISetNodalVariableNames(ctx->viewer, nodalNames);
@@ -130,22 +131,26 @@ ExodusOutputContext * createExodusOutput(FluentTwoDMesh * p_mesh, const char * f
 }
 
 void writeExodusStep(ExodusOutputContext * ctx, FluentTwoDMesh * p_mesh, int step, double time,
-                      Vec u, Vec v, Vec p, Vec F_face_star, bool writeStreamFunction)
+                      Vec u, Vec v, Vec p, Vec T, Vec F_face_star, bool writeStreamFunction)
 {
   const PetscScalar * uu;
   const PetscScalar * vv;
   const PetscScalar * pp;
+  const PetscScalar * tt;
   VecGetArrayRead(u, &uu);
   VecGetArrayRead(v, &vv);
   VecGetArrayRead(p, &pp);
+  VecGetArrayRead(T, &tt);
 
   writeFieldValues(ctx->dmU, ctx->cStart, ctx->cEnd, uu, "vel_x", ctx->viewer, step, time);
   writeFieldValues(ctx->dmV, ctx->cStart, ctx->cEnd, vv, "vel_y", ctx->viewer, step, time);
   writeFieldValues(ctx->dmP, ctx->cStart, ctx->cEnd, pp, "pressure", ctx->viewer, step, time);
+  writeFieldValues(ctx->dmT, ctx->cStart, ctx->cEnd, tt, "T", ctx->viewer, step, time);
 
   VecRestoreArrayRead(u, &uu);
   VecRestoreArrayRead(v, &vv);
   VecRestoreArrayRead(p, &pp);
+  VecRestoreArrayRead(T, &tt);
 
   if (writeStreamFunction)
   {
@@ -188,6 +193,7 @@ void closeExodusOutput(ExodusOutputContext * ctx)
   DMDestroy(&ctx->dmU);
   DMDestroy(&ctx->dmV);
   DMDestroy(&ctx->dmP);
+  DMDestroy(&ctx->dmT);
   DMDestroy(&ctx->dmSF);
   DMDestroy(&ctx->baseDM);
   delete ctx;

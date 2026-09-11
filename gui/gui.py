@@ -38,6 +38,7 @@ class RunnerApp:
         self.time_steps = []
         self.u_errors = []
         self.v_errors = []
+        self.t_errors = []
 
         self._build_menu()
         self._build_layout()
@@ -79,6 +80,7 @@ class RunnerApp:
         self.ax.set_yscale("log")
         (self.u_line,) = self.ax.plot([], [], marker="o", label="u L2 error")
         (self.v_line,) = self.ax.plot([], [], marker="s", label="v L2 error")
+        (self.t_line,) = self.ax.plot([], [], marker="^", label="T L2 error")
         self.ax.legend()
 
         self.canvas = FigureCanvasTkAgg(self.figure, master=right)
@@ -123,6 +125,7 @@ class RunnerApp:
         self.time_steps = []
         self.u_errors = []
         self.v_errors = []
+        self.t_errors = []
         self._update_plot()
 
         base = os.path.splitext(os.path.basename(self.input_path))[0]
@@ -180,23 +183,40 @@ class RunnerApp:
             if not line or line.startswith("time_step"):
                 continue
             parts = line.split(",")
-            if len(parts) != 3:
+            # The solver writes time_step,u,v,T -- the T column arrived with the energy
+            # equation. Accept any row with at least the three older fields rather than
+            # an exact count, so a future column can't silently blank the plot again.
+            if len(parts) < 3:
                 continue
             try:
-                step, u_err, v_err = int(parts[0]), float(parts[1]), float(parts[2])
+                step = int(parts[0])
+                u_err, v_err = float(parts[1]), float(parts[2])
+                t_err = float(parts[3]) if len(parts) > 3 else 0.0
             except ValueError:
                 continue
             self.time_steps.append(step)
             self.u_errors.append(u_err)
             self.v_errors.append(v_err)
+            self.t_errors.append(t_err)
             changed = True
 
         if changed:
             self._update_plot()
 
+    @staticmethod
+    def _log_safe(values):
+        """Blank out non-positive values for the log y-axis.
+
+        A run with no temperature B.C. anywhere holds T at -T_init, so its "error" is an
+        exact 0 on every step; u/v can also hit exact 0 once fully converged. Those can't
+        be drawn on a log scale and would distort relim(), whereas NaN is simply skipped.
+        """
+        return [v if v > 0.0 else float("nan") for v in values]
+
     def _update_plot(self):
-        self.u_line.set_data(self.time_steps, self.u_errors)
-        self.v_line.set_data(self.time_steps, self.v_errors)
+        self.u_line.set_data(self.time_steps, self._log_safe(self.u_errors))
+        self.v_line.set_data(self.time_steps, self._log_safe(self.v_errors))
+        self.t_line.set_data(self.time_steps, self._log_safe(self.t_errors))
         self.ax.relim()
         self.ax.autoscale_view()
         self.canvas.draw_idle()

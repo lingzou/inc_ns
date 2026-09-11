@@ -11,6 +11,11 @@ std::map<int, bool>   is_interior_zone;
 bool PRESSURE_ANCHOR_NEEDED = false;
 double DT, VISC;
 
+std::map<int, bool>   has_T_BC;
+std::map<int, double> T_BC;
+double DIFF_T;
+bool BUOYANCY_ON = false;
+
 void setupBoundaryConditions(FluentTwoDMesh * p_mesh)
 {
   std::map<int, std::vector<Face*> > & face_zone_map = p_mesh->getFaceZoneMap();
@@ -36,6 +41,17 @@ void setupBoundaryConditions(FluentTwoDMesh * p_mesh)
       continue;
     }
     is_interior_zone[zone] = false;
+
+    // Temperature B.C. is independent of the momentum/pressure B.C. type above --
+    // any non-interior zone may optionally set a Dirichlet T; if omitted, it's adiabatic.
+    char T_opt[64];
+    double T_val = 0.0;
+    PetscBool T_flg = PETSC_FALSE;
+    snprintf(T_opt, sizeof(T_opt), "-bc_%d_T", zone);
+    PetscOptionsGetReal(NULL, NULL, T_opt, &T_val, &T_flg);
+    has_T_BC[zone] = (bool)T_flg;
+    if (T_flg)
+      T_BC[zone] = T_val;
 
     if (type_str == "velocity_inlet")
     {
@@ -250,6 +266,100 @@ void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec b_UST
   MatAssemblyEnd(M_USTAR, MAT_FINAL_ASSEMBLY);
   MatAssemblyBegin(M_VSTAR, MAT_FINAL_ASSEMBLY);
   MatAssemblyEnd(M_VSTAR, MAT_FINAL_ASSEMBLY);
+}
+
+void updateEnergyAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face, Vec b_T, Mat M_T)
+{
+  // Same structure as updateAdvectionOperator() above, specialized to the single
+  // scalar field T (no U/V pair).
+  PetscScalar * ff;
+  PetscScalar * bb_t;
+  VecGetArray(F_face, &ff);
+  VecGetArray(b_T, &bb_t);
+
+  std::vector<FluentTriCell> & cell_set = p_mesh->getCellSet();
+  std::map<int, std::vector<Face*> > & face_zone_map = p_mesh->getFaceZoneMap();
+  for (std::map<int, std::vector<Face*> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
+  {
+    int zone = it->first;
+    if (!is_interior_zone[zone])
+    {
+      for (unsigned int j = 0; j < (it->second).size(); j++)
+      {
+        Face * face = (it->second).at(j);
+        long int cell_id1 = face->cell_id1();
+        double fface = ff[face->id()];
+
+        PetscInt col[1]; double val[1];
+        PetscInt r1 = cell_id1 - 1;
+        val[0] = fface; col[0] = r1;
+
+        if (has_T_BC[zone])
+          bb_t[cell_id1-1] -= fface * T_BC[zone];
+        else
+          MatSetValues(M_T, 1, &r1, 1, col, val, ADD_VALUES);
+      }
+    }
+    else
+    {
+      for (unsigned int j = 0; j < (it->second).size(); j++)
+      {
+        double GAMMA = 0.5;
+
+        Face * face = (it->second).at(j);
+        long int face_id = face->id();
+        long int cell_id1 = face->cell_id1();
+        long int cell_id2 = face->cell_id2();
+
+        const FluentTriCell & cell_1 = cell_set.at(cell_id1-1);
+        const FluentTriCell & cell_2 = cell_set.at(cell_id2-1);
+        double v1 = cell_1.volume();
+        double v2 = cell_2.volume();
+
+        double area_f = face->area();
+        double alpha_12 = v2 / (v1 + v2);
+        double alpha_21 = 1.0 - alpha_12;
+        PetscInt r1 = cell_id1 - 1; PetscInt r2 = cell_id2 - 1;
+        PetscInt col[2];
+        double val[2], nval[2];
+
+        col[0] = r1; col[1] = r2;
+        val[0] = (1.0 - GAMMA) * ff[face_id] * alpha_12;
+        val[1] = (1.0 - GAMMA) * ff[face_id] * alpha_21;
+        if (ff[face_id] > 0.0)
+          val[0] += GAMMA * ff[face_id];
+        else
+          val[1] += GAMMA * ff[face_id];
+
+        nval[0] = -val[0]; nval[1] = -val[1];
+        MatSetValues(M_T, 1, &r1, 2, col, val, ADD_VALUES);
+        MatSetValues(M_T, 1, &r2, 2, col, nval, ADD_VALUES);
+      }
+    }
+  }
+  VecRestoreArray(F_face, &ff);
+  VecRestoreArray(b_T, &bb_t);
+
+  MatAssemblyBegin(M_T, MAT_FINAL_ASSEMBLY);
+  MatAssemblyEnd(M_T, MAT_FINAL_ASSEMBLY);
+}
+
+void updateBuoyancySource(FluentTwoDMesh * p_mesh, Vec T, Vec b_VSTAR)
+{
+  const PetscScalar * tt;
+  PetscScalar * bb_vstar;
+  VecGetArrayRead(T, &tt);
+  VecGetArray(b_VSTAR, &bb_vstar);
+
+  std::vector<FluentTriCell> & cell_set = p_mesh->getCellSet();
+  for(std::vector<FluentTriCell>::iterator it = cell_set.begin(); it != cell_set.end(); ++it)
+  {
+    long int cell_id = it->id();
+    bb_vstar[cell_id-1] += tt[cell_id-1] * it->volume();
+  }
+
+  VecRestoreArrayRead(T, &tt);
+  VecRestoreArray(b_VSTAR, &bb_vstar);
 }
 
 void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec F_0f_star, Vec b_p)

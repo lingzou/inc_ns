@@ -19,6 +19,20 @@ extern std::map<int, bool>   has_U_BC, has_V_BC, has_p_BC;
 extern std::map<int, double> U_BC, V_BC, p_BC;
 extern double DT, VISC;
 
+// Temperature B.C. map: optional per boundary zone, via "-bc_<zone>_T <value>" (see
+// setupBoundaryConditions() below). A zone with no such option is adiabatic
+// (zero-gradient), the same default a wall's u/v gets when omitted.
+extern std::map<int, bool>   has_T_BC;
+extern std::map<int, double> T_BC;
+// Thermal diffusivity ("-diff_t"), Gamma_T in DEB08's Eq. 2. Whether this should be
+// 1/(Re*Pr) (forced convection) or 1/sqrt(Ra*Pr) (natural convection) is up to the
+// caller, mirroring how VISC is handed -visc directly rather than derived from Re here.
+extern double DIFF_T;
+// Set via "-buoyancy true/false" (default false). Gates whether updateBuoyancySource()
+// is called at all -- T is always solved regardless (see cxx_main.C), so with this off
+// T is a pure passive scalar with no feedback into momentum.
+extern bool BUOYANCY_ON;
+
 // Whether a given mesh zone is an interior zone (shared by two cells) rather than a
 // boundary zone (one cell, possibly a Dirichlet B.C.) -- populated by
 // setupBoundaryConditions() below from each zone's "-bc_<zone>_type", so callers no
@@ -47,6 +61,9 @@ extern bool PRESSURE_ANCHOR_NEEDED;
 // cases above. Exits with a clear error if a mesh zone has no matching "-bc_<zone>_type"
 // or the type name/required values are missing.
 //
+// Independently of the above, every non-interior zone may also specify "-bc_<zone>_T
+// <value>" for a Dirichlet temperature B.C.; if omitted, the zone is adiabatic.
+//
 // Also sets PRESSURE_ANCHOR_NEEDED (see above) once every zone has been processed.
 void setupBoundaryConditions(FluentTwoDMesh * p_mesh);
 
@@ -74,6 +91,12 @@ protected:
 
 struct GRAD;
 void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec b_USTAR, Vec b_VSTAR, Mat M_USTAR, Mat M_VSTAR);
+// Same structure as updateAdvectionOperator() above, but for the single scalar field T.
+void updateEnergyAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face, Vec b_T, Mat M_T);
+// Adds the Boussinesq buoyancy source (S_v = T, DEB08 section 4's Ra/Pr-nondimensionalized
+// form) into b_VSTAR. Callers gate this on BUOYANCY_ON themselves, so the toggle stays
+// visible at the call site in cxx_main.C rather than hidden inside this function.
+void updateBuoyancySource(FluentTwoDMesh * p_mesh, Vec T, Vec b_VSTAR);
 void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec F_0f_star, Vec b_p);
 void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Vec p, Vec gradP_x, Vec gradP_y);
 void evaluatePressureGradientValues(FluentTwoDMesh * p_mesh, Vec p, Vec gradP_x, Vec gradP_y, GRAD * grad_p);

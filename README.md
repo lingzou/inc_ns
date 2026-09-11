@@ -64,7 +64,9 @@ below). Output is written to `output/`, named from the input file's own basename
 
 - `<problem>_out.e` -- Exodus output (open in ParaView).
 - `<problem>_out_<step>.vtu` -- one VTU per time step, kept alongside Exodus for now.
-- `<problem>_out_convergence.csv` -- per-time-step `u`/`v` velocity L2-error history.
+- `<problem>_out_convergence.csv` -- per-time-step L2-error history, one row per step:
+  `time_step,u_L2_error,v_L2_error,T_L2_error`. Written every step regardless of
+  `-output_interval`. `T_L2_error` is an exact 0 for cases with no temperature B.C.
 
 Regression tests (`exodiff` against `expected/*_out.e`, via SEACAS's `exodiff`):
 
@@ -79,8 +81,8 @@ python gui/gui.py
 ```
 
 A small Tkinter app: `File -> Open` loads an input file into a read-only preview, and
-`Run` executes it and live-plots the `u`/`v` L2 error convergence history (tailing the
-CSV above) as the simulation progresses. Needs `tkinter` and `matplotlib`; no PETSc or
+`Run` executes it and live-plots the `u`/`v`/`T` L2 error convergence history (tailing
+the CSV above) on a log axis as the simulation progresses. Needs `tkinter` and `matplotlib`; no PETSc or
 build step required to just run the GUI itself.
 
 ## Input file structure
@@ -98,6 +100,20 @@ for complete, working examples. Required top-level keys:
 -n_timestep <number of time steps>
 ```
 
+Optional top-level keys:
+
+```
+-output_interval <n>          # write every n-th step to the Exodus file (default 1)
+-diff_t          <value>      # thermal diffusivity (default 0)
+-T_init          <value>      # uniform initial temperature (default 0)
+-buoyancy        <true|false> # Boussinesq buoyancy source in v-momentum (default false)
+```
+***important***
+
+When `-buoyancy = true`, the simulation is no-longer true transient simulations, while it becomes
+a pseudo transient as the code has not been implemented to perform the iteration between temperature field
+and the mass-momentum iterations.
+
 Every face zone in the mesh (`inc_exec` prints each as `Face Zone <id>` on startup) must
 also have a `-bc_<zone>_type <type>` entry, plus whatever values that type needs:
 
@@ -114,6 +130,24 @@ If no zone provides a pressure B.C. at all (e.g. the lid-driven cavity, walls al
 around), the pressure equation is only defined up to a constant; the solver detects this
 automatically and anchors one cell's pressure to zero, no input-file setting needed.
 
-A missing `-bc_<zone>_type`, an unrecognized type name, or a missing required value for a
-given type makes `inc_exec` exit immediately with an error naming the specific
-zone/option at fault, rather than running with silently wrong physics.
+### Temperature boundary conditions
+
+Temperature is independent of the type in the table above: *any* non-interior zone, of
+*any* type, may additionally carry
+
+```
+-bc_<zone>_T <value>          # fixed (Dirichlet) temperature on that zone
+```
+
+There is no separate `type` for it -- a hot wall is simply a `wall` that also sets
+`-bc_<zone>_T`, the same way a moving wall is a `wall` that also sets `-bc_<zone>_u`.
+
+Omit it and the zone is **adiabatic**, i.e. zero gradient.
+Currently, a prescribed non-zero heat flux is not supported.
+
+If *no* zone anywhere sets `-bc_<zone>_T`, `T` stays at `-T_init` for the entire run
+whatever `-diff_t` is -- which is why both of those keys are optional.
+
+`input/cavity_buoyancy.i` is the worked example -- a differentially heated cavity with
+zone 4 hot (`-bc_4_T 1.0`), zone 2 cold (`-bc_2_T 0.0`), and the top and bottom walls
+adiabatic by simply not including a `-bc_<zone>_T` line.

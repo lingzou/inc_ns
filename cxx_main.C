@@ -1,5 +1,6 @@
 #include <fstream>
 #include <iostream>
+#include <vector>
 #include <petscsnes.h>
 
 #include "inc_problems.h"
@@ -52,16 +53,36 @@ int main(int argc, char **argv)
   PetscBool visc_specified = PETSC_FALSE;
   PetscBool n_timestep_specified = PETSC_FALSE;
   PetscInt  n_timestep_opt = 0;
+  PetscInt  output_interval = 1;
+  PetscBool buoyancy_flg = PETSC_FALSE;
+  double    T_init = 0.0;
 
   PetscOptionsGetString(NULL, NULL, "-problem", problem_name, sizeof(problem_name), &problem_specified);
   PetscOptionsGetString(NULL, NULL, "-mesh", mesh_file, sizeof(mesh_file), &mesh_specified);
   PetscOptionsGetReal(NULL, NULL, "-dt", &DT, &dt_specified);
   PetscOptionsGetReal(NULL, NULL, "-visc", &VISC, &visc_specified);
+  // -diff_t is optional (default 0.0): problems with no T Dirichlet B.C. anywhere keep
+  // T uniformly at -T_init forever regardless of its value, so existing input files
+  // that predate the energy equation don't need to specify it.
+  PetscOptionsGetReal(NULL, NULL, "-diff_t", &DIFF_T, NULL);
   PetscOptionsGetInt(NULL, NULL, "-n_timestep", &n_timestep_opt, &n_timestep_specified);
+  // -output_interval is optional (default 1 = write every time step, the historical
+  // behavior). Long pseudo-transient runs to steady state only need a coarse history:
+  // cavity_buoyancy_1e5's 4000 steps write 1.1 GB at interval 1.
+  PetscOptionsGetInt(NULL, NULL, "-output_interval", &output_interval, NULL);
+  PetscOptionsGetBool(NULL, NULL, "-buoyancy", &buoyancy_flg, NULL);
+  BUOYANCY_ON = (bool)buoyancy_flg;
+  PetscOptionsGetReal(NULL, NULL, "-T_init", &T_init, NULL);
 
   if (!problem_specified || !mesh_specified || !dt_specified || !visc_specified || !n_timestep_specified)
   {
     std::cout << "ERROR: '" << inputFile << "' must specify all of: -problem, -mesh, -dt, -visc, -n_timestep." << std::endl;
+    exit(1);
+  }
+
+  if (output_interval < 1)
+  {
+    std::cout << "ERROR: '-output_interval' must be >= 1 (got " << output_interval << ")." << std::endl;
     exit(1);
   }
 
@@ -89,7 +110,7 @@ int main(int argc, char **argv)
   // Per-time-step convergence history (u/v L2 error), flushed after every row so an
   // external process (e.g. gui.py) can tail it live while this run is still going.
   std::ofstream convergence_file(output_prefix + "_convergence.csv");
-  convergence_file << "time_step,u_L2_error,v_L2_error" << std::endl;
+  convergence_file << "time_step,u_L2_error,v_L2_error,T_L2_error" << std::endl;
 
   std::cout << "# of faces: " << app.p_mesh->n_Faces() << std::endl;
 
@@ -114,9 +135,13 @@ int main(int argc, char **argv)
 
   // --->
   std::cout << "GRAD START" << std::endl;
-  GRAD grad_u_star[n_Cell];
-  GRAD grad_v_star[n_Cell];
-  GRAD grad_p[n_Cell];
+  // Heap-allocated (not stack arrays): n_Cell scales with mesh size, and
+  // backward_facing_step's ~21k cells * 4 GRAD arrays already exceeds a typical 8MB
+  // thread stack.
+  std::vector<GRAD> grad_u_star(n_Cell);
+  std::vector<GRAD> grad_v_star(n_Cell);
+  std::vector<GRAD> grad_p(n_Cell);
+  std::vector<GRAD> grad_T(n_Cell);
   for (std::map<int, std::vector<Face*> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
   {
     int zone = it->first;
@@ -147,6 +172,11 @@ int main(int argc, char **argv)
           grad_p[cell_id1-1].addBCContribution(p_BC[zone] * face_normal.x() / v1, p_BC[zone] * face_normal.y() / v1);
         else
           grad_p[cell_id1-1].addCoef(0, cell_id1, face_normal.x() / v1, face_normal.y() / v1);
+
+        if (has_T_BC[zone])
+          grad_T[cell_id1-1].addBCContribution(T_BC[zone] * face_normal.x() / v1, T_BC[zone] * face_normal.y() / v1);
+        else // adiabatic: T face = T cell
+          grad_T[cell_id1-1].addCoef(0, cell_id1, face_normal.x() / v1, face_normal.y() / v1);
       }
     }
     else
@@ -168,26 +198,32 @@ int main(int argc, char **argv)
         grad_u_star[cell_id1-1].addCoef(0, cell_id1, alpha_12 * face_normal.x() / v1, alpha_12 * face_normal.y() / v1);
         grad_v_star[cell_id1-1].addCoef(0, cell_id1, alpha_12 * face_normal.x() / v1, alpha_12 * face_normal.y() / v1);
              grad_p[cell_id1-1].addCoef(0, cell_id1, alpha_12 * face_normal.x() / v1, alpha_12 * face_normal.y() / v1);
+             grad_T[cell_id1-1].addCoef(0, cell_id1, alpha_12 * face_normal.x() / v1, alpha_12 * face_normal.y() / v1);
 
         grad_u_star[cell_id1-1].size++;
         grad_v_star[cell_id1-1].size++;
              grad_p[cell_id1-1].size++;
+             grad_T[cell_id1-1].size++;
 
         grad_u_star[cell_id1-1].addCoef(grad_u_star[cell_id1-1].size, cell_id2, alpha_21 * face_normal.x() / v1, alpha_21 * face_normal.y() / v1);
         grad_v_star[cell_id1-1].addCoef(grad_v_star[cell_id1-1].size, cell_id2, alpha_21 * face_normal.x() / v1, alpha_21 * face_normal.y() / v1);
              grad_p[cell_id1-1].addCoef(     grad_p[cell_id1-1].size, cell_id2, alpha_21 * face_normal.x() / v1, alpha_21 * face_normal.y() / v1);
+             grad_T[cell_id1-1].addCoef(     grad_T[cell_id1-1].size, cell_id2, alpha_21 * face_normal.x() / v1, alpha_21 * face_normal.y() / v1);
         // Cell 2
         grad_u_star[cell_id2-1].addCoef(0, cell_id2, -alpha_21 * face_normal.x() / v2, -alpha_21 * face_normal.y() / v2);
         grad_v_star[cell_id2-1].addCoef(0, cell_id2, -alpha_21 * face_normal.x() / v2, -alpha_21 * face_normal.y() / v2);
              grad_p[cell_id2-1].addCoef(0, cell_id2, -alpha_21 * face_normal.x() / v2, -alpha_21 * face_normal.y() / v2);
+             grad_T[cell_id2-1].addCoef(0, cell_id2, -alpha_21 * face_normal.x() / v2, -alpha_21 * face_normal.y() / v2);
 
         grad_u_star[cell_id2-1].size++;
         grad_v_star[cell_id2-1].size++;
              grad_p[cell_id2-1].size++;
+             grad_T[cell_id2-1].size++;
 
         grad_u_star[cell_id2-1].addCoef(grad_u_star[cell_id2-1].size, cell_id1, -alpha_12 * face_normal.x() / v2, -alpha_12 * face_normal.y() / v2);
         grad_v_star[cell_id2-1].addCoef(grad_v_star[cell_id2-1].size, cell_id1, -alpha_12 * face_normal.x() / v2, -alpha_12 * face_normal.y() / v2);
              grad_p[cell_id2-1].addCoef(     grad_p[cell_id2-1].size, cell_id1, -alpha_12 * face_normal.x() / v2, -alpha_12 * face_normal.y() / v2);
+             grad_T[cell_id2-1].addCoef(     grad_T[cell_id2-1].size, cell_id1, -alpha_12 * face_normal.x() / v2, -alpha_12 * face_normal.y() / v2);
       }
     }
   }
@@ -199,11 +235,13 @@ int main(int argc, char **argv)
   Mat       M_USTAR_FIXED, M_VSTAR_FIXED;
   Mat       M_USTAR, M_VSTAR;
   Mat       M_P;
+  Mat       M_T_FIXED, M_T;
   Vec       u, u_STAR, b_USTAR, b_USTAR_FINAL;
   Vec       v, v_STAR, b_VSTAR, b_VSTAR_FINAL;
   Vec       p, b_p, p_old_it, b_p_FINAL;
+  Vec       T, T_NEW, b_T, b_T_FINAL;
   Vec       F_face_star, F_0f_star, F_face_star_old_it;
-  KSP       ksp_USTAR, ksp_VSTAR, ksp_P;
+  KSP       ksp_USTAR, ksp_VSTAR, ksp_P, ksp_T;
 
   Vec       grad_p_x, grad_p_y;
   Vec       p_src_x, p_src_y;
@@ -225,6 +263,11 @@ int main(int argc, char **argv)
   VecDuplicate(u_STAR, &b_p_FINAL);
   VecDuplicate(u_STAR, &p_old_it);
 
+  VecDuplicate(u_STAR, &T);
+  VecDuplicate(u_STAR, &T_NEW);
+  VecDuplicate(u_STAR, &b_T);
+  VecDuplicate(u_STAR, &b_T_FINAL);
+
   VecDuplicate(u_STAR, &grad_p_x);
   VecDuplicate(u_STAR, &grad_p_y);
   VecDuplicate(u_STAR, &p_src_x);
@@ -242,6 +285,11 @@ int main(int argc, char **argv)
   VecSet(b_p, 0.0);
   VecSet(b_p_FINAL, 0.0);
   VecSet(p_old_it, 0.0);
+
+  VecSet(T, T_init);
+  VecSet(T_NEW, T_init);
+  VecSet(b_T, 0.0);
+  VecSet(b_T_FINAL, 0.0);
 
   VecSet(grad_p_x, 0.0);
   VecSet(grad_p_y, 0.0);
@@ -266,6 +314,9 @@ int main(int argc, char **argv)
   MatCreateSeqAIJ(PETSC_COMM_SELF, n_Cell, n_Cell, 10, NULL, &M_P);  // 10 is the max possible neighbor cell numbers for a cell
   MatSetOption(M_P, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
 
+  MatCreateSeqAIJ(PETSC_COMM_SELF, n_Cell, n_Cell, 10, NULL, &M_T_FIXED);  // 10 is the max possible neighbor cell numbers for a cell
+  MatSetOption(M_T_FIXED, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
+
   // M_USTAR/M_VSTAR are created once (via MatDuplicate from the assembled *_FIXED
   // matrices, once those are finalized below) and reused for the whole run -- each
   // Picard iteration resets their values with MatCopy() rather than MatDuplicate()'ing
@@ -274,6 +325,7 @@ int main(int argc, char **argv)
   KSPCreate(PETSC_COMM_WORLD, &ksp_USTAR);
   KSPCreate(PETSC_COMM_WORLD, &ksp_VSTAR);
   KSPCreate(PETSC_COMM_WORLD, &ksp_P);
+  KSPCreate(PETSC_COMM_WORLD, &ksp_T);
   KSPSetType(ksp_P, KSPCG);
   // M_P discretizes a Poisson-like pressure equation, so PCGAMG is probably the best preconditioner
   PC pc_P;
@@ -285,19 +337,24 @@ int main(int argc, char **argv)
   KSPSetOptionsPrefix(ksp_USTAR, "ustar_");
   KSPSetOptionsPrefix(ksp_VSTAR, "vstar_");
   KSPSetOptionsPrefix(ksp_P, "p_");
+  KSPSetOptionsPrefix(ksp_T, "t_");
 
   std::cout << "KSP END SETUP" << std::endl;
 
   PetscScalar * bb_ustar;
   PetscScalar * bb_vstar;
   PetscScalar * bb_p;
+  PetscScalar * bb_t;
   PetscScalar * uu; //, * uu_star;
   PetscScalar * vv; //, * vv_star;
+  PetscScalar * tt;
   VecGetArray(b_USTAR, &bb_ustar);
   VecGetArray(b_VSTAR, &bb_vstar);
   VecGetArray(b_p, &bb_p);
+  VecGetArray(b_T, &bb_t);
   VecGetArray(u, &uu);
   VecGetArray(v, &vv);
+  VecGetArray(T, &tt);
   //VecGetArray(u_STAR, &uu_star);
   //VecGetArray(v_STAR, &vv_star);
 
@@ -347,6 +404,12 @@ int main(int argc, char **argv)
           MatSetValues(M_P, 1, &row, 1, col, val, ADD_VALUES);
           bb_p[row]     -= face->area() / distance * p_BC[zone];
         }
+        if (has_T_BC[zone])
+        {
+          val[0] = DIFF_T * face->area() / distance;
+          MatSetValues(M_T_FIXED, 1, &row, 1, col, val, ADD_VALUES);
+          bb_t[row] += DIFF_T * face->area() / distance * T_BC[zone];
+        }
       }
     }
     else
@@ -389,6 +452,9 @@ int main(int argc, char **argv)
           val[0] = area_f / distance; nval[0] = -val[0];
           MatSetValues(M_P, 1, &r1, 1, col, nval, ADD_VALUES);   // cell 1 diag
           MatSetValues(M_P, 1, &r2, 1, col, val, ADD_VALUES);  // cell 2 off-diag
+          val[0] = DIFF_T * area_f / distance; nval[0] = -val[0];
+          MatSetValues(M_T_FIXED, 1, &r1, 1, col, val, ADD_VALUES);   // cell 1 diag
+          MatSetValues(M_T_FIXED, 1, &r2, 1, col, nval, ADD_VALUES);  // cell 2 off-diag
 
           col[0] = r2; val[0] = VISC * area_f / distance; nval[0] = -val[0];
           MatSetValues(M_USTAR_FIXED, 1, &r1, 1, col, nval, ADD_VALUES);  // cell 1 off-diag
@@ -399,6 +465,9 @@ int main(int argc, char **argv)
           val[0] = area_f / distance; nval[0] = -val[0];
           MatSetValues(M_P, 1, &r1, 1, col, val, ADD_VALUES);  // cell 1 off-diag
           MatSetValues(M_P, 1, &r2, 1, col, nval, ADD_VALUES);   // cell 2 diag
+          val[0] = DIFF_T * area_f / distance; nval[0] = -val[0];
+          MatSetValues(M_T_FIXED, 1, &r1, 1, col, nval, ADD_VALUES);  // cell 1 off-diag
+          MatSetValues(M_T_FIXED, 1, &r2, 1, col, val, ADD_VALUES);   // cell 2 diag
 
           int size1 = grad_u_star[cell_id1-1].size;
           if (size1 > 3) {std::cerr<<"size1 > 3\n"; exit(1);}
@@ -444,6 +513,20 @@ int main(int argc, char **argv)
           bc_contribution = -area_f * alpha_12 * (grad_p[cell_id1-1].bc_x * n2.x() + grad_p[cell_id1-1].bc_y * n2.y());
           bb_p[r1] += bc_contribution;
           bb_p[r2] -= bc_contribution;
+          // copy & paste for T (diffusion sign convention matches USTAR/VSTAR, not -MP)
+          if (grad_T[cell_id1-1].size != size1) {std::cerr<<"size != size1\n"; exit(1);}
+          for (int i = 0; i < size1+1; i++)
+          {
+            col1[i] = grad_T[cell_id1-1].cell_id[i]-1;
+            val1[i] = -grad_T[cell_id1-1].coef_x[i] * n2.x() - grad_T[cell_id1-1].coef_y[i] * n2.y();
+            val1[i] *= (DIFF_T * area_f * alpha_12);
+            nval1[i] = -val1[i];
+          }
+          MatSetValues(M_T_FIXED, 1, &r1, size1+1, col1, val1, ADD_VALUES); // cell 1 off-diag
+          MatSetValues(M_T_FIXED, 1, &r2, size1+1, col1, nval1, ADD_VALUES); // cell 2 off-diag
+          bc_contribution = DIFF_T * area_f * alpha_12 * (grad_T[cell_id1-1].bc_x * n2.x() + grad_T[cell_id1-1].bc_y * n2.y());
+          bb_t[r1] += bc_contribution;
+          bb_t[r2] -= bc_contribution;
 
           int size2 = grad_u_star[cell_id2-1].size;
           if (size2 > 3) {std::cerr<<"size2 > 3\n"; exit(1);}
@@ -489,6 +572,20 @@ int main(int argc, char **argv)
           bc_contribution = -area_f * alpha_21 * (grad_p[cell_id2-1].bc_x * n2.x() + grad_p[cell_id2-1].bc_y * n2.y());
           bb_p[r1] += bc_contribution;
           bb_p[r2] -= bc_contribution;
+          // copy & paste for T
+          if (grad_T[cell_id2-1].size != size2) {std::cerr<<"size != size2\n"; exit(1);}
+          for (int i = 0; i < size2+1; i++)
+          {
+            col2[i] = grad_T[cell_id2-1].cell_id[i]-1;
+            val2[i] = -grad_T[cell_id2-1].coef_x[i] * n2.x() - grad_T[cell_id2-1].coef_y[i] * n2.y();
+            val2[i] *= (DIFF_T * area_f * alpha_21);
+            nval2[i] = -val2[i];
+          }
+          MatSetValues(M_T_FIXED, 1, &r1, size2+1, col2, val2, ADD_VALUES);
+          MatSetValues(M_T_FIXED, 1, &r2, size2+1, col2, nval2, ADD_VALUES);
+          bc_contribution = DIFF_T * area_f * alpha_21 * (grad_T[cell_id2-1].bc_x * n2.x() + grad_T[cell_id2-1].bc_y * n2.y());
+          bb_t[r1] += bc_contribution;
+          bb_t[r2] -= bc_contribution;
       }
     }
   }
@@ -509,6 +606,9 @@ int main(int argc, char **argv)
     MatSetValues(M_VSTAR_FIXED, 1, &row, 1, col, val, ADD_VALUES);
     bb_vstar[row] += vv[row] * RHO * it->volume() / DT;
     /* This function has been checked; 09/02/2019, 1:38PM */
+
+    MatSetValues(M_T_FIXED, 1, &row, 1, col, val, ADD_VALUES);
+    bb_t[row] += tt[row] * RHO * it->volume() / DT;
   }
 
   MatAssemblyBegin(M_USTAR_FIXED, MAT_FINAL_ASSEMBLY);
@@ -519,6 +619,10 @@ int main(int argc, char **argv)
 
   MatAssemblyBegin(M_P, MAT_FINAL_ASSEMBLY);
   MatAssemblyEnd(M_P, MAT_FINAL_ASSEMBLY);
+
+  MatAssemblyBegin(M_T_FIXED, MAT_FINAL_ASSEMBLY);
+  MatAssemblyEnd(M_T_FIXED, MAT_FINAL_ASSEMBLY);
+
   if (PRESSURE_ANCHOR_NEEDED)
   {
     // No zone provides a pressure Dirichlet B.C., so the pressure equation (a pure
@@ -538,23 +642,32 @@ int main(int argc, char **argv)
   // KSPSetOperators.
   MatDuplicate(M_USTAR_FIXED, MAT_COPY_VALUES, &M_USTAR);
   MatDuplicate(M_VSTAR_FIXED, MAT_COPY_VALUES, &M_VSTAR);
+  MatDuplicate(M_T_FIXED, MAT_COPY_VALUES, &M_T);
   KSPSetOperators(ksp_USTAR, M_USTAR, M_USTAR);
   KSPSetFromOptions(ksp_USTAR);
   KSPSetOperators(ksp_VSTAR, M_VSTAR, M_VSTAR);
   KSPSetFromOptions(ksp_VSTAR);
   KSPSetOperators(ksp_P, M_P, M_P);
   KSPSetFromOptions(ksp_P);
+  KSPSetOperators(ksp_T, M_T, M_T);
+  KSPSetFromOptions(ksp_T);
 
   VecRestoreArray(b_USTAR, &bb_ustar);
   VecRestoreArray(b_VSTAR, &bb_vstar);
   VecRestoreArray(b_p, &bb_p);
+  VecRestoreArray(b_T, &bb_t);
   VecRestoreArray(u, &uu);
   VecRestoreArray(v, &vv);
+  VecRestoreArray(T, &tt);
   //VecRestoreArray(u_STAR, &uu_star);
   //VecRestoreArray(v_STAR, &vv_star);
   // std::cout << "KSP START" << std::endl;
 
   unsigned int N_TIMESTEP = (unsigned int)n_timestep_opt;
+  // Index of the next Exodus time record. ExodusII records must be contiguous (see
+  // DMSetOutputSequenceNumber/ex_put_time in ExodusOutput.C), so this counts only the
+  // steps actually written and parts company with time_step once output_interval > 1.
+  int output_index = 0;
   for (int time_step = 0; time_step < N_TIMESTEP; time_step++)
   {
     // Begin of time step
@@ -570,6 +683,11 @@ int main(int argc, char **argv)
       VecCopy(b_USTAR, b_USTAR_FINAL);
       VecCopy(b_VSTAR, b_VSTAR_FINAL);
       updateAdvectionOperator(app.p_mesh, F_face_star, b_USTAR_FINAL, b_VSTAR_FINAL, M_USTAR, M_VSTAR);
+      // Boussinesq buoyancy (S_v = T, lagged one time step): added fresh into
+      // b_VSTAR_FINAL every time it's rebuilt, never into the persistent b_VSTAR
+      // baseline, so it never accumulates across time steps or inner iterations.
+      if (BUOYANCY_ON)
+        updateBuoyancySource(app.p_mesh, T, b_VSTAR_FINAL);
 
       KSPSolve(ksp_USTAR, b_USTAR_FINAL, u_STAR);
       KSPSolve(ksp_VSTAR, b_VSTAR_FINAL, v_STAR);
@@ -582,7 +700,7 @@ int main(int argc, char **argv)
       KSPSolve(ksp_P, b_p_FINAL, p);
 
       // Compute grad_P from solved p
-      evaluatePressureGradientValues(app.p_mesh, p, grad_p_x, grad_p_y, grad_p);
+      evaluatePressureGradientValues(app.p_mesh, p, grad_p_x, grad_p_y, grad_p.data());
 
       // update F_face_star from solved pressure, and check if it has converged
       VecCopy(F_face_star, F_face_star_old_it);
@@ -609,12 +727,23 @@ int main(int argc, char **argv)
     VecCopy(b_USTAR, b_USTAR_FINAL);
     VecCopy(b_VSTAR, b_VSTAR_FINAL);
     updateAdvectionOperator(app.p_mesh, F_face_star, b_USTAR_FINAL, b_VSTAR_FINAL, M_USTAR, M_VSTAR);
+    if (BUOYANCY_ON)
+      updateBuoyancySource(app.p_mesh, T, b_VSTAR_FINAL);
     // update rhs due to pressure gradient
     updatePressureGradientAsSource(app.p_mesh, b_USTAR_FINAL, b_VSTAR_FINAL, grad_p_x, grad_p_y);
 
     // Solve u_star and v_star considering pressure gradients
     KSPSolve(ksp_USTAR, b_USTAR_FINAL, u_STAR);  // now u_star is u^(n+1)
     KSPSolve(ksp_VSTAR, b_VSTAR_FINAL, v_STAR);  // now v_star is v^(n+1)
+
+    // Solve energy equation once per time step, using the now-converged F_face_star
+    // this means that the temperature effect is not fed back to y-momentum equation, such that
+    // there is a time lag, and that when Boussinesq buoyancy is considered, this becomes a
+    // psuedo-transient, instead of true transient
+    MatCopy(M_T_FIXED, M_T, SAME_NONZERO_PATTERN);
+    VecCopy(b_T, b_T_FINAL);
+    updateEnergyAdvectionOperator(app.p_mesh, F_face_star, b_T_FINAL, M_T);
+    KSPSolve(ksp_T, b_T_FINAL, T_NEW);  // now T_NEW is T^(n+1)
 
     // Update rhs of velocity equations, prepare for next time step
     //VecAXPY(b_USTAR, -1.0, p_src_x);
@@ -635,24 +764,44 @@ int main(int argc, char **argv)
     VecRestoreArray(b_USTAR, &bb_ustar);  VecRestoreArray(b_VSTAR, &bb_vstar);
     VecRestoreArray(u, &uu);  VecRestoreArray(v, &vv);  VecRestoreArray(u_STAR, &uu_star);  VecRestoreArray(v_STAR, &vv_star);
 
+    // Update rhs of energy equation, prepare for next time step (mirrors b_USTAR/b_VSTAR above)
+    PetscScalar * tt_new;
+    VecGetArray(b_T, &bb_t);  VecGetArray(T, &tt);  VecGetArray(T_NEW, &tt_new);
+    for(std::vector<FluentTriCell>::iterator it = cell_set.begin(); it != cell_set.end(); ++it)
+    {
+      double RHO = 1.0;
+      PetscInt row = it->id() - 1;
+      bb_t[row] += (tt_new[row] - tt[row]) * RHO * it->volume() / DT;
+    }
+    VecRestoreArray(b_T, &bb_t);  VecRestoreArray(T, &tt);  VecRestoreArray(T_NEW, &tt_new);
+
     // update u and v from u_star and v_star
     /*check time step convergence first*/
     VecAXPY(u, -1.0, u_STAR); // now u is (u_STAR - u_old)
     VecAXPY(v, -1.0, v_STAR); // now v is (v_STAR - v_old)
-    PetscScalar error_norm_u, error_norm_v;
+    PetscScalar error_norm_u, error_norm_v, error_norm_T;
     VecNorm(u, NORM_2, &error_norm_u); VecNorm(v, NORM_2, &error_norm_v);
     // std::cout << "    u L2 error = " << error_norm_u << std::endl;
     // std::cout << "    v L2 error = " << error_norm_v << std::endl;
-    convergence_file << time_step << "," << error_norm_u << "," << error_norm_v << std::endl;
+    VecAXPY(T, -1.0, T_NEW); // now T is (T_NEW - T_old)
+    VecNorm(T, NORM_2, &error_norm_T);
+    convergence_file << time_step << "," << error_norm_u << "," << error_norm_v << "," << error_norm_T << std::endl;
 
     VecCopy(u_STAR, u);
     VecCopy(v_STAR, v);
+    VecCopy(T_NEW, T);
     // End of time step
 
+    // The last step is always written, whatever the interval: it carries the stream
+    // function and, for the steady-state runs, it is the answer.
     bool computeStreamFunction = (time_step == N_TIMESTEP-1);
-    // drop off VTU support
-    // writeOutputFile(output_prefix, time_step, app.p_mesh, u, v, p, F_face_star, computeStreamFunction);
-    writeExodusStep(exoCtx, app.p_mesh, time_step, (time_step+1)*DT, u, v, p, F_face_star, computeStreamFunction);
+    if ((time_step + 1) % output_interval == 0 || computeStreamFunction)
+    {
+      // drop off VTU support
+      // writeOutputFile(output_prefix, output_index, app.p_mesh, u, v, p, F_face_star, computeStreamFunction);
+      writeExodusStep(exoCtx, app.p_mesh, output_index, (time_step+1)*DT, u, v, p, T, F_face_star, computeStreamFunction);
+      output_index++;
+    }
     // std::cout << "Time Step " << time_step << " end <<<<<<<<<" << std::endl << std::endl;
     std::cout << "  [ok]\n";
   }
@@ -662,7 +811,8 @@ int main(int argc, char **argv)
   VecDestroy(&b_USTAR); VecDestroy(&u_STAR); VecDestroy(&u); MatDestroy(&M_USTAR_FIXED); MatDestroy(&M_USTAR);
   VecDestroy(&b_VSTAR); VecDestroy(&v_STAR); VecDestroy(&v); MatDestroy(&M_VSTAR_FIXED); MatDestroy(&M_VSTAR);
   VecDestroy(&p); VecDestroy(&b_p); VecDestroy(&p_old_it); MatDestroy(&M_P);
-  KSPDestroy(&ksp_USTAR); KSPDestroy(&ksp_VSTAR); KSPDestroy(&ksp_P);
+  VecDestroy(&b_T); VecDestroy(&b_T_FINAL); VecDestroy(&T); VecDestroy(&T_NEW); MatDestroy(&M_T_FIXED); MatDestroy(&M_T);
+  KSPDestroy(&ksp_USTAR); KSPDestroy(&ksp_VSTAR); KSPDestroy(&ksp_P); KSPDestroy(&ksp_T);
 
   VecDestroy(&F_face_star); VecDestroy(&F_0f_star); VecDestroy(&F_face_star_old_it);
   VecDestroy(&grad_p_x); VecDestroy(&grad_p_y); VecDestroy(&p_src_x); VecDestroy(&p_src_y);
