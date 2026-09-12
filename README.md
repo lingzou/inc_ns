@@ -13,7 +13,7 @@ unstructured triangular meshes, following:
 ### Fluent2DMesh
 
 Mesh I/O (reading Fluent/Gambit `.msh` files) lives in a separate sibling repo,
-[Fluent2DMesh](../Fluent2DMesh), expected to be checked out next to this one:
+[Fluent2DMesh](https://github.com/lingzou/Fluent2DMesh), expected to be checked out next to this one:
 
 ```
 projects/

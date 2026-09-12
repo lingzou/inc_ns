@@ -2,7 +2,7 @@
 
 EXODIFF=/Users/lingzou/projects/SAM/moose/framework/contrib/exodiff/exodiff
 
-PROBLEMS=(cylinder cavity backward_facing_step cavity_buoyancy)
+PROBLEMS=(cylinder cavity backward_facing_step cavity_buoyancy poiseuille)
 
 for problem in "${PROBLEMS[@]}"
 do
