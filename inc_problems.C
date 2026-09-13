@@ -15,6 +15,7 @@ std::map<int, bool>   has_T_BC;
 std::map<int, double> T_BC;
 double DIFF_T;
 bool BUOYANCY_ON = false;
+bool NEWTON_ON = false;
 
 void setupBoundaryConditions(FluentTwoDMesh * p_mesh)
 {

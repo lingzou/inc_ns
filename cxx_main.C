@@ -5,6 +5,7 @@
 
 #include "inc_problems.h"
 #include "ExodusOutput.h"
+#include "newton_solver.h"
 
 /*
  * References:
@@ -55,6 +56,7 @@ int main(int argc, char **argv)
   PetscInt  n_timestep_opt = 0;
   PetscInt  output_interval = 1;
   PetscBool buoyancy_flg = PETSC_FALSE;
+  PetscBool newton_flg = PETSC_FALSE;
   double    T_init = 0.0;
 
   PetscOptionsGetString(NULL, NULL, "-problem", problem_name, sizeof(problem_name), &problem_specified);
@@ -73,6 +75,11 @@ int main(int argc, char **argv)
   PetscOptionsGetBool(NULL, NULL, "-buoyancy", &buoyancy_flg, NULL);
   BUOYANCY_ON = (bool)buoyancy_flg;
   PetscOptionsGetReal(NULL, NULL, "-T_init", &T_init, NULL);
+  // -newton is optional (default false = the segregated Picard/SIMPLE path below).
+  // Read here, after the PetscOptionsInsertFile() above, so it can be set either on the
+  // command line or from the -i input file like every other option.
+  PetscOptionsGetBool(NULL, NULL, "-newton", &newton_flg, NULL);
+  NEWTON_ON = (bool)newton_flg;
 
   if (!problem_specified || !mesh_specified || !dt_specified || !visc_specified || !n_timestep_specified)
   {
@@ -104,6 +111,12 @@ int main(int argc, char **argv)
   if (dot != std::string::npos)
     input_base = input_base.substr(0, dot);
   std::string output_prefix = "output/" + input_base + "_out";
+  // The Newton path writes to its own "<base>_out_newton.*" so that running the same
+  // input file both ways leaves two results side by side to compare -- the refinement
+  // -rate check in runNewtonTests.sh depends on this -- and so that -newton can never
+  // silently overwrite an expected/ gold produced by the segregated solver.
+  if (NEWTON_ON)
+    output_prefix += "_newton";
 
   ExodusOutputContext * exoCtx = createExodusOutput(app.p_mesh, (output_prefix + ".e").c_str());
 
@@ -664,6 +677,44 @@ int main(int argc, char **argv)
   // std::cout << "KSP START" << std::endl;
 
   unsigned int N_TIMESTEP = (unsigned int)n_timestep_opt;
+
+  // Monolithic Newton-Krylov path ("-newton true"). Everything above this point is
+  // shared setup -- mesh, B.C.s, the GRAD stencils, and the assembled diffusion +
+  // time-derivative operators -- all of which the residual in newton_solver.C reuses
+  // rather than re-deriving. It runs its own time loop and returns with u/v/p/T at the
+  // final time level, so the cleanup below is unchanged.
+  if (NEWTON_ON)
+  {
+    NewtonSolverConfig cfg;
+    cfg.p_mesh = app.p_mesh;
+    cfg.grad_p = &grad_p;
+    cfg.M_USTAR_FIXED = M_USTAR_FIXED; cfg.M_VSTAR_FIXED = M_VSTAR_FIXED; cfg.M_T_FIXED = M_T_FIXED;
+    cfg.M_USTAR = M_USTAR; cfg.M_VSTAR = M_VSTAR; cfg.M_T = M_T;
+    cfg.b_USTAR = b_USTAR; cfg.b_VSTAR = b_VSTAR; cfg.b_T = b_T;
+    cfg.u = u; cfg.v = v; cfg.p = p; cfg.T = T;
+    cfg.F_face = F_face_star;
+    cfg.n_timestep = (int)N_TIMESTEP;
+    cfg.output_interval = (int)output_interval;
+    cfg.exoCtx = exoCtx;
+    cfg.convergence_file = &convergence_file;
+
+    runNewtonSolver(cfg);
+
+    closeExodusOutput(exoCtx);
+    VecDestroy(&u); VecDestroy(&v); VecDestroy(&p); VecDestroy(&u_STAR); VecDestroy(&v_STAR);
+    VecDestroy(&b_USTAR); VecDestroy(&b_VSTAR); VecDestroy(&b_p); VecDestroy(&p_old_it);
+    VecDestroy(&b_T); VecDestroy(&b_T_FINAL); VecDestroy(&T); VecDestroy(&T_NEW);
+    VecDestroy(&b_USTAR_FINAL); VecDestroy(&b_VSTAR_FINAL); VecDestroy(&b_p_FINAL);
+    VecDestroy(&grad_p_x); VecDestroy(&grad_p_y); VecDestroy(&p_src_x); VecDestroy(&p_src_y);
+    VecDestroy(&F_face_star); VecDestroy(&F_0f_star); VecDestroy(&F_face_star_old_it);
+    MatDestroy(&M_USTAR_FIXED); MatDestroy(&M_VSTAR_FIXED); MatDestroy(&M_USTAR); MatDestroy(&M_VSTAR);
+    MatDestroy(&M_P); MatDestroy(&M_T_FIXED); MatDestroy(&M_T);
+    KSPDestroy(&ksp_USTAR); KSPDestroy(&ksp_VSTAR); KSPDestroy(&ksp_P); KSPDestroy(&ksp_T);
+    app.FreeWorkSpace();
+    PetscFinalize();
+    return 0;
+  }
+
   // Index of the next Exodus time record. ExodusII records must be contiguous (see
   // DMSetOutputSequenceNumber/ex_put_time in ExodusOutput.C), so this counts only the
   // steps actually written and parts company with time_step once output_interval > 1.

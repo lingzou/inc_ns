@@ -33,6 +33,13 @@ extern double DIFF_T;
 // T is a pure passive scalar with no feedback into momentum.
 extern bool BUOYANCY_ON;
 
+// Set via "-newton true/false" (default false). Selects the monolithic Newton-Krylov
+// solver (newton_solver.C) in place of the default segregated Picard/SIMPLE time loop
+// in cxx_main.C. The two solve the same discrete equations -- see
+// docs/newton_krylov_formulation.tex -- so with -buoyancy false they must agree to
+// solver tolerance; that equivalence is the Newton path's main regression test.
+extern bool NEWTON_ON;
+
 // Whether a given mesh zone is an interior zone (shared by two cells) rather than a
 // boundary zone (one cell, possibly a Dirichlet B.C.) -- populated by
 // setupBoundaryConditions() below from each zone's "-bc_<zone>_type", so callers no
