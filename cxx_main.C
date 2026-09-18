@@ -690,6 +690,7 @@ int main(int argc, char **argv)
     cfg.grad_p = &grad_p;
     cfg.M_USTAR_FIXED = M_USTAR_FIXED; cfg.M_VSTAR_FIXED = M_VSTAR_FIXED; cfg.M_T_FIXED = M_T_FIXED;
     cfg.M_USTAR = M_USTAR; cfg.M_VSTAR = M_VSTAR; cfg.M_T = M_T;
+    cfg.M_P = M_P;
     cfg.b_USTAR = b_USTAR; cfg.b_VSTAR = b_VSTAR; cfg.b_T = b_T;
     cfg.u = u; cfg.v = v; cfg.p = p; cfg.T = T;
     cfg.F_face = F_face_star;

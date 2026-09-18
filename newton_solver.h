@@ -55,6 +55,19 @@ struct NewtonSolverConfig
   // every residual evaluation, so their contents on entry and exit are meaningless.
   Mat M_USTAR, M_VSTAR, M_T;
 
+  // The segregated path's compact pressure Laplacian, borrowed read-only. Eliminating
+  // velocity from the Newton system gives a pressure Schur complement
+  //   S = J_pp - J_pu A^-1 J_up = (L_cmp - L_wide) + (1/dt) D (A^-1 dV) grad,
+  // and A^-1 dV acting on a smooth field is exactly dt (advection and diffusion both
+  // annihilate a constant, so M*1 = rho*dV/dt*1 on interior cells). The wide-stencil
+  // terms therefore cancel and S ~ L_cmp, which IS M_P -- the same operator, and the
+  // same reason the segregated solver's CG+GAMG on M_P works so well. Handed to
+  // PCFIELDSPLIT as the Schur preconditioner when -newton_schur_mp is given.
+  //
+  // The signs above rely on computeContinuityResidual() forming -(1/dt) sum_f F_f; see
+  // the comment there for why that sign was chosen.
+  Mat M_P;
+
   // cxx_main.C's persistent RHS baselines, which at this point hold
   // (Dirichlet-BC diffusion contributions) + phi^0 * rho*V/dt. runNewtonSolver()
   // subtracts the phi^0 part back out once at entry to recover the genuinely

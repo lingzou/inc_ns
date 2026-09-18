@@ -175,6 +175,13 @@ void computeFaceFluxes(FluentTwoDMesh * p_mesh, Vec u, Vec v, Vec p,
 // 1/dt to match that function's b_p convention, so the pressure row's magnitude is
 // comparable to the momentum rows'. SNES's convergence test takes a single norm over
 // the whole residual, so a badly scaled block would silently dominate or vanish.
+//
+// Written as -(1/dt) sum_f F_f rather than +. The sign of a residual is free -- R = 0
+// and -R = 0 are the same equation -- and this choice is what makes M_P directly usable
+// as the Schur-complement preconditioner. With +, eliminating velocity gives
+// S ~ -L_cmp, the negative of M_P (see NewtonSolverConfig::M_P), so the fieldsplit would
+// need a negated copy and GAMG would be handed a negative-definite operator. Flipping
+// here flips J_pp and J_pu, hence S, and costs nothing else.
 void computeContinuityResidual(FluentTwoDMesh * p_mesh, Vec F_f, Vec p, PetscScalar * div)
 {
   const PetscScalar * ff, * pp;
@@ -193,15 +200,16 @@ void computeContinuityResidual(FluentTwoDMesh * p_mesh, Vec F_f, Vec p, PetscSca
     {
       Face * face = (it->second).at(j);
       double fface = ff[face->id()];
-      div[face->cell_id1()-1] += fface / DT;
+      div[face->cell_id1()-1] -= fface / DT;
       if (is_interior_zone[zone])
-        div[face->cell_id2()-1] -= fface / DT;
+        div[face->cell_id2()-1] += fface / DT;
     }
   }
 
   // Mirrors the MatZeroRows(M_P, row 0) / bb_p[0] = 0.0 pair the segregated path uses:
   // with no pressure B.C. anywhere the pressure is defined only up to a constant, so one
-  // continuity row is traded for an anchor.
+  // continuity row is traded for an anchor. Deliberately left POSITIVE despite the sign
+  // flip above, so d(R_p)/dp on this row is +1 and still matches M_P's identity row.
   if (PRESSURE_ANCHOR_NEEDED)
     div[0] = pp[0];
 
@@ -408,6 +416,9 @@ void runNewtonSolver(NewtonSolverConfig & cfg)
   // Two rings of a triangle is at most 1 + 3 + 3*2 = 10 cells, so 40 columns per row;
   // 64 leaves headroom for irregular connectivity without a reallocation.
   MatCreateSeqAIJ(PETSC_COMM_SELF, n_dof, n_dof, 64, NULL, &J);
+  // Lets PCFIELDSPLIT recover the four fields from the interlaced layout, so a
+  // Schur-complement split can be driven entirely from the command line.
+  MatSetBlockSize(J, N_DOF_PER_CELL);
   MatSetOption(J, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
   buildJacobianPattern(p_mesh, J);
 
@@ -440,6 +451,23 @@ void runNewtonSolver(NewtonSolverConfig & cfg)
     PCSetType(pc, PCLU);
   }
   SNESSetFromOptions(snes);
+
+  // With -newton_schur_mp, hand M_P to a Schur fieldsplit as the preconditioner for the
+  // pressure block. PETSc's built-in "selfp" instead builds D diag(A)^-1 G -- the WIDE
+  // -stencil Laplacian scaled by dV/a_P, the rough-mode response -- where the derivation
+  // in newton_solver.h says the answer is the COMPACT one at full strength. Opt-in so
+  // that -pc_fieldsplit_schur_precondition still means what it says when not passed, and
+  // after SNESSetFromOptions(), which is what creates the PCFIELDSPLIT.
+  {
+    PetscBool use_mp = PETSC_FALSE, is_fs = PETSC_FALSE;
+    PetscOptionsGetBool(NULL, NULL, "-newton_schur_mp", &use_mp, NULL);
+    KSP ksp; PC pc;
+    SNESGetKSP(snes, &ksp);
+    KSPGetPC(ksp, &pc);
+    PetscObjectTypeCompare((PetscObject)pc, PCFIELDSPLIT, &is_fs);
+    if (use_mp && is_fs && cfg.M_P)
+      PCFieldSplitSetSchurPre(pc, PC_FIELDSPLIT_SCHUR_PRE_USER, cfg.M_P);
+  }
 
   // --- time loop -------------------------------------------------------------------
   // Output mirrors the segregated loop exactly (same records, same interval rule, same
