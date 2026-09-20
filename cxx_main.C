@@ -758,17 +758,22 @@ int main(int argc, char **argv)
       VecCopy(F_face_star, F_face_star_old_it);
       updateFfaceStar(app.p_mesh, F_face_star, F_0f_star, p, grad_p_x, grad_p_y);
       VecAXPY(F_face_star_old_it, -1.0, F_face_star); // now F_face_star_old_it is F_face_star - F_face_star_old_it
-      PetscScalar error_norm = 0;
+      PetscScalar error_norm = 0, F_face_star_norm = 0;
       VecNorm(F_face_star_old_it, NORM_2, &error_norm);
+      VecNorm(F_face_star, NORM_2, &F_face_star_norm);
+      // Guard against the near-zero flux state at an impulsive start, where a pure
+      // relative test would never trip.
+      PetscScalar rel_error_norm = error_norm / PetscMax(F_face_star_norm, 1.0e-12);
 
-      if (error_norm < 1.0e-9)
+      if (error_norm < 1.0e-9 || rel_error_norm < 1.0e-8)
       {
-        // std::cout << "it = " << i << ": L2 error = " << error_norm << std::endl;
+        // std::cout << "it = " << i << ": L2 error = " << error_norm << " (relative = " << rel_error_norm << ")" << std::endl;
         break;
       }
       if (i == N_it_max - 1)
       {
-        std::cout << "it = " << i << ": L2 error = " << error_norm << ". Inner iterations did not converge." << std::endl;
+        std::cout << "it = " << i << ": L2 error = " << error_norm << " (relative = " << rel_error_norm
+                   << "). Inner iterations did not converge." << std::endl;
         exit(1);
       }
     }
