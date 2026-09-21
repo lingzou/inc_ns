@@ -172,7 +172,10 @@ int main(int argc, char **argv)
         // If has boundary value, it goes to the BC contribution; otherwise,
         // we assuming d_phi/dn = 0, such that phi_BC = phi_cell, and this boundary contributes as a cell value
         if (has_U_BC[zone])
-          grad_u_star[cell_id1-1].addBCContribution(U_BC[zone] * face_normal.x() / v1, U_BC[zone] * face_normal.y() / v1);
+        {
+          double u_bc = evaluateFaceU_BC(zone, face, app.p_mesh);
+          grad_u_star[cell_id1-1].addBCContribution(u_bc * face_normal.x() / v1, u_bc * face_normal.y() / v1);
+        }
         else // u face = u cell
           grad_u_star[cell_id1-1].addCoef(0, cell_id1, face_normal.x() / v1, face_normal.y() / v1);
 
@@ -404,7 +407,7 @@ int main(int argc, char **argv)
         if (has_U_BC[zone])
         {
           MatSetValues(M_USTAR_FIXED, 1, &row, 1, col, val, ADD_VALUES);
-          bb_ustar[row] += VISC * face->area() / distance * U_BC[zone];
+          bb_ustar[row] += VISC * face->area() / distance * evaluateFaceU_BC(zone, face, app.p_mesh);
         }
         if (has_V_BC[zone])
         {

@@ -7,9 +7,15 @@
 -visc 0.01
 -n_timestep 20
 
-# Zone 1: inlet -- velocity inlet
+# Zone 1: inlet -- velocity inlet, parabolic profile
+# Inlet spans y in [-1, 0] (see mesh/backward_facing_step.geo, points A/B).
+# Average velocity of a parabolic profile is (2/3)*u_max, so u_max = 1.5 * 1.5 = 2.25
+# keeps the same avg inlet velocity (and thus Re = 300) as the uniform profile above.
 -bc_1_type velocity_inlet
--bc_1_u 1.5
+-bc_1_u_profile parabolic
+-bc_1_u_ymin -1.0
+-bc_1_u_ymax 0.0
+-bc_1_u_umax 2.25
 -bc_1_v 0.0
 
 # Zones 2, 3, 5: step, bottom_wall, top_wall -- solid no-slip walls

@@ -7,6 +7,8 @@
 
 std::map<int, bool>   has_U_BC, has_V_BC, has_p_BC;
 std::map<int, double> U_BC, V_BC, p_BC;
+std::map<int, bool>   has_U_profile;
+std::map<int, ParabolicProfile> U_profile;
 std::map<int, bool>   is_interior_zone;
 bool PRESSURE_ANCHOR_NEEDED = false;
 double DT, VISC;
@@ -59,18 +61,68 @@ void setupBoundaryConditions(FluentTwoDMesh * p_mesh)
       char u_opt[64], v_opt[64];
       snprintf(u_opt, sizeof(u_opt), "-bc_%d_u", zone);
       snprintf(v_opt, sizeof(v_opt), "-bc_%d_v", zone);
-      double u_val = 0.0, v_val = 0.0;
-      PetscBool u_flg = PETSC_FALSE, v_flg = PETSC_FALSE;
-      PetscOptionsGetReal(NULL, NULL, u_opt, &u_val, &u_flg);
+
+      double v_val = 0.0;
+      PetscBool v_flg = PETSC_FALSE;
       PetscOptionsGetReal(NULL, NULL, v_opt, &v_val, &v_flg);
-      if (!u_flg || !v_flg)
+      if (!v_flg)
       {
-        std::cout << "ERROR: zone " << zone << " is 'velocity_inlet' but '" << u_opt << "' and/or '" << v_opt
-                  << "' are not specified." << std::endl;
+        std::cout << "ERROR: zone " << zone << " is 'velocity_inlet' but '" << v_opt << "' is not specified." << std::endl;
         exit(1);
       }
-      has_U_BC[zone] = true;  U_BC[zone] = u_val;
       has_V_BC[zone] = true;  V_BC[zone] = v_val;
+
+      // u is either a plain constant (-bc_<zone>_u) or, if "-bc_<zone>_u_profile
+      // parabolic" is given instead, a parabolic function of y -- see
+      // evaluateFaceU_BC() and its declaration in inc_problems.h.
+      char profile_opt[64], profile_type[64];
+      snprintf(profile_opt, sizeof(profile_opt), "-bc_%d_u_profile", zone);
+      PetscBool profile_flg = PETSC_FALSE;
+      PetscOptionsGetString(NULL, NULL, profile_opt, profile_type, sizeof(profile_type), &profile_flg);
+
+      if (profile_flg)
+      {
+        std::string profile_str(profile_type);
+        if (profile_str != "parabolic")
+        {
+          std::cout << "ERROR: zone " << zone << " has unknown '" << profile_opt << "' = '" << profile_str
+                    << "'. Supported profiles: parabolic." << std::endl;
+          exit(1);
+        }
+
+        char ymin_opt[64], ymax_opt[64], umax_opt[64];
+        snprintf(ymin_opt, sizeof(ymin_opt), "-bc_%d_u_ymin", zone);
+        snprintf(ymax_opt, sizeof(ymax_opt), "-bc_%d_u_ymax", zone);
+        snprintf(umax_opt, sizeof(umax_opt), "-bc_%d_u_umax", zone);
+        double y_min = 0.0, y_max = 0.0, u_max = 0.0;
+        PetscBool ymin_flg = PETSC_FALSE, ymax_flg = PETSC_FALSE, umax_flg = PETSC_FALSE;
+        PetscOptionsGetReal(NULL, NULL, ymin_opt, &y_min, &ymin_flg);
+        PetscOptionsGetReal(NULL, NULL, ymax_opt, &y_max, &ymax_flg);
+        PetscOptionsGetReal(NULL, NULL, umax_opt, &u_max, &umax_flg);
+        if (!ymin_flg || !ymax_flg || !umax_flg)
+        {
+          std::cout << "ERROR: zone " << zone << " has '" << profile_opt << " parabolic' but '" << ymin_opt << "'/'"
+                    << ymax_opt << "'/'" << umax_opt << "' are not all specified." << std::endl;
+          exit(1);
+        }
+        has_U_BC[zone] = true;
+        has_U_profile[zone] = true;
+        U_profile[zone] = ParabolicProfile{y_min, y_max, u_max};
+      }
+      else
+      {
+        double u_val = 0.0;
+        PetscBool u_flg = PETSC_FALSE;
+        PetscOptionsGetReal(NULL, NULL, u_opt, &u_val, &u_flg);
+        if (!u_flg)
+        {
+          std::cout << "ERROR: zone " << zone << " is 'velocity_inlet' but '" << u_opt << "' is not specified." << std::endl;
+          exit(1);
+        }
+        has_U_BC[zone] = true;
+        has_U_profile[zone] = false;
+        U_BC[zone] = u_val;
+      }
       has_p_BC[zone] = false;
     }
     else if (type_str == "wall")
@@ -86,6 +138,7 @@ void setupBoundaryConditions(FluentTwoDMesh * p_mesh)
       PetscOptionsGetReal(NULL, NULL, u_opt, &u_val, &u_flg);
       PetscOptionsGetReal(NULL, NULL, v_opt, &v_val, &v_flg);
       has_U_BC[zone] = true;  U_BC[zone] = u_val;
+      has_U_profile[zone] = false;
       has_V_BC[zone] = true;  V_BC[zone] = v_val;
       has_p_BC[zone] = false;
     }
@@ -98,6 +151,7 @@ void setupBoundaryConditions(FluentTwoDMesh * p_mesh)
     else if (type_str == "vertical_slip_wall")
     {
       has_U_BC[zone] = true;  U_BC[zone] = 0.0;
+      has_U_profile[zone] = false;
       has_V_BC[zone] = false;
       has_p_BC[zone] = false;
     }
@@ -148,6 +202,21 @@ void setupBoundaryConditions(FluentTwoDMesh * p_mesh)
    * V_BC[2] = 0.0; V_BC[3] = 0.0; V_BC[4] = 0.0; V_BC[5] = 0.0;
    * p_BC[2] = -1e6; p_BC[3] = -1e6; p_BC[4] = -1e6; p_BC[5] = -1e6;
    */
+}
+
+double evaluateFaceU_BC(int zone, Face * face, FluentTwoDMesh * p_mesh)
+{
+  if (!has_U_profile[zone])
+    return U_BC[zone];
+
+  std::vector<Node*> & node_set = p_mesh->getNodeSet();
+  double y = 0.5 * (node_set.at(face->node_id1()-1)->y() + node_set.at(face->node_id2()-1)->y());
+
+  const ParabolicProfile & prof = U_profile[zone];
+  double y_mid = 0.5 * (prof.y_min + prof.y_max);
+  double half_height = 0.5 * (prof.y_max - prof.y_min);
+  double eta = (y - y_mid) / half_height;
+  return prof.u_max * (1.0 - eta * eta);
 }
 
 void
@@ -206,7 +275,7 @@ void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec b_UST
         val[0] = fface; col[0] = r1;
 
         if (has_U_BC[zone])
-          bb_ustar[cell_id1-1] -= fface * U_BC[zone];
+          bb_ustar[cell_id1-1] -= fface * evaluateFaceU_BC(zone, face, p_mesh);
         else
           MatSetValues(M_USTAR, 1, &r1, 1, col, val, ADD_VALUES);
 
@@ -386,7 +455,7 @@ void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec 
         Face * face = (it->second).at(j);
         long int cell_id1 = face->cell_id1();
         Vec3d face_normal = face->faceNormal();
-        double u_face = has_U_BC[zone] ? U_BC[zone] : uu_star[cell_id1-1];
+        double u_face = has_U_BC[zone] ? evaluateFaceU_BC(zone, face, p_mesh) : uu_star[cell_id1-1];
         double v_face = has_V_BC[zone] ? V_BC[zone] : vv_star[cell_id1-1];
         double fface = u_face * face_normal.x() + v_face * face_normal.y();
 

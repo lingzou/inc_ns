@@ -19,6 +19,19 @@ extern std::map<int, bool>   has_U_BC, has_V_BC, has_p_BC;
 extern std::map<int, double> U_BC, V_BC, p_BC;
 extern double DT, VISC;
 
+// Optional per-zone spatially-varying replacement for a constant U_BC[zone], selected
+// via "-bc_<zone>_u_profile parabolic" (see setupBoundaryConditions() below). Only u
+// supports a profile -- v remains a plain constant, as today.
+struct ParabolicProfile { double y_min, y_max, u_max; };
+extern std::map<int, bool> has_U_profile;
+extern std::map<int, ParabolicProfile> U_profile;
+
+// Returns the Dirichlet u-value to use for `face` in `zone` -- either the constant
+// U_BC[zone], or, when has_U_profile[zone], the parabolic profile evaluated at the
+// face's midpoint y (u_max * (1 - eta^2), eta = normalized position in [y_min, y_max]).
+// Callers must already know has_U_BC[zone] is true.
+double evaluateFaceU_BC(int zone, Face * face, FluentTwoDMesh * p_mesh);
+
 // Temperature B.C. map: optional per boundary zone, via "-bc_<zone>_T <value>" (see
 // setupBoundaryConditions() below). A zone with no such option is adiabatic
 // (zero-gradient), the same default a wall's u/v gets when omitted.
@@ -57,7 +70,11 @@ extern bool PRESSURE_ANCHOR_NEEDED;
 // pressure_outlet) and populates the B.C. maps and is_interior_zone above. Supported
 // types:
 //   interior              - shared by two cells, no B.C. (see is_interior_zone above)
-//   velocity_inlet        - u, v both Dirichlet, values REQUIRED from -bc_<zone>_u/_v
+//   velocity_inlet        - u, v both Dirichlet. -bc_<zone>_v is REQUIRED. -bc_<zone>_u
+//                            is REQUIRED unless "-bc_<zone>_u_profile parabolic" is given
+//                            instead, in which case -bc_<zone>_u_ymin/_ymax/_umax
+//                            (all REQUIRED) instead give a parabolic u(y) profile --
+//                            see evaluateFaceU_BC() above
 //   wall                  - u, v Dirichlet; -bc_<zone>_u/_v are OPTIONAL and default to
 //                            0 (no-slip), so a moving wall (e.g. a cavity's lid) is just
 //                            a wall with an explicit non-zero -bc_<zone>_u/_v

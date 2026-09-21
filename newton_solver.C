@@ -94,7 +94,7 @@ void computeFaceFluxes(FluentTwoDMesh * p_mesh, Vec u, Vec v, Vec p,
         Face * face = (it->second).at(j);
         long int cell_id1 = face->cell_id1();
         Vec3d face_normal = face->faceNormal();
-        double u_face = has_U_BC[zone] ? U_BC[zone] : uu[cell_id1-1];
+        double u_face = has_U_BC[zone] ? evaluateFaceU_BC(zone, face, p_mesh) : uu[cell_id1-1];
         double v_face = has_V_BC[zone] ? V_BC[zone] : vv[cell_id1-1];
         double fface = u_face * face_normal.x() + v_face * face_normal.y();
 
