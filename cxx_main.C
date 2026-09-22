@@ -261,12 +261,93 @@ int main(int argc, char **argv)
     std::cout << "\n  U_inf = " << U_inf << ", direction = (" << dir_x << ", " << dir_y << "), D_ref = " << D_ref << std::endl;
   }
 
+  // --- Optional Nusselt-number post-processing on -nusselt_zones --------------------
+  // "-nusselt_zones <comma-separated zone ids>" (e.g. "-nusselt_zones 4,2") names fixed-
+  // temperature wall zone(s) (e.g. the hot/cold walls of a differentially heated cavity)
+  // whose face-length-weighted average Nusselt number should be tracked every time step.
+  // Omit it entirely for problems with no such wall.
+  std::vector<int> nusselt_zone_list;
+  {
+    char nusselt_zones_str[PETSC_MAX_PATH_LEN];
+    PetscBool nusselt_zones_flg = PETSC_FALSE;
+    PetscOptionsGetString(NULL, NULL, "-nusselt_zones", nusselt_zones_str, sizeof(nusselt_zones_str), &nusselt_zones_flg);
+    if (nusselt_zones_flg)
+    {
+      std::stringstream ss(nusselt_zones_str);
+      std::string token;
+      while (std::getline(ss, token, ','))
+        if (!token.empty())
+          nusselt_zone_list.push_back(std::atoi(token.c_str()));
+    }
+  }
+  for (unsigned int i = 0; i < nusselt_zone_list.size(); i++)
+  {
+    int zone = nusselt_zone_list[i];
+    if (face_zone_map.find(zone) == face_zone_map.end())
+    {
+      std::cout << "ERROR: -nusselt_zones names zone " << zone << " which does not exist in the mesh." << std::endl;
+      exit(1);
+    }
+    if (is_interior_zone[zone])
+    {
+      std::cout << "ERROR: -nusselt_zones names zone " << zone << " which is an interior zone, not a wall." << std::endl;
+      exit(1);
+    }
+    if (!has_T_BC[zone])
+    {
+      std::cout << "ERROR: -nusselt_zones names zone " << zone << " which has no '-bc_" << zone << "_T' (fixed temperature), "
+                 << "so there is no wall temperature to take a gradient against." << std::endl;
+      exit(1);
+    }
+  }
+
+  bool NUSSELT_ENABLED = !nusselt_zone_list.empty();
+  if (NUSSELT_ENABLED && NEWTON_ON)
+  {
+    std::cout << "ERROR: -nusselt_zones (Nu output) is not supported together with -newton true." << std::endl;
+    exit(1);
+  }
+
+  // Per boundary face on a -nusselt_zones zone: distance is the perpendicular distance
+  // from the adjacent fluid cell's centroid to the wall face -- the same one-sided
+  // finite-difference denominator the energy equation itself uses for a Dirichlet-T
+  // boundary face (see the DIFF_T * area/distance term below), so Nu_local here is
+  // exactly the wall-normal temperature gradient the solver's own discretization sees.
+  struct NusseltFaceInfo { long int cell_id1; double distance; double length; };
+  std::map<int, std::vector<NusseltFaceInfo> > nusselt_faces;
+
+  if (NUSSELT_ENABLED)
+  {
+    for (unsigned int i = 0; i < nusselt_zone_list.size(); i++)
+    {
+      int zone = nusselt_zone_list[i];
+      std::vector<Face*> & faces = face_zone_map[zone];
+      std::vector<NusseltFaceInfo> & info = nusselt_faces[zone];
+      for (unsigned int j = 0; j < faces.size(); j++)
+      {
+        long int cell_id1 = faces[j]->cell_id1();
+        Point centroid = cell_set.at(cell_id1-1).centroid();
+        Point pt1 = node_set.at(faces[j]->node_id1()-1)->point();
+        Point pt2 = node_set.at(faces[j]->node_id2()-1)->point();
+        double distance = app.p_mesh->node_to_face_distance(centroid, pt1, pt2);
+        NusseltFaceInfo nf = {cell_id1, distance, faces[j]->area()};
+        info.push_back(nf);
+      }
+    }
+
+    std::cout << "Nusselt post-processing enabled on zone(s):";
+    for (unsigned int i = 0; i < nusselt_zone_list.size(); i++) std::cout << " " << nusselt_zone_list[i];
+    std::cout << std::endl;
+  }
+
   // Per-time-step convergence history (u/v/T L2 error, plus Cf/Cp/Cd/Cl when
-  // -force_zones is set), flushed after every row so an external process (e.g. gui.py)
-  // can tail it live while this run is still going.
+  // -force_zones is set, plus Nu_<zone> per -nusselt_zones entry), flushed after every
+  // row so an external process (e.g. gui.py) can tail it live while this run is still
+  // going.
   std::ofstream convergence_file(output_prefix + "_convergence.csv");
   convergence_file << "time_step,u_L2_error,v_L2_error,T_L2_error";
   if (FORCE_ENABLED) convergence_file << ",Cf,Cp,Cd,Cl";
+  for (unsigned int i = 0; i < nusselt_zone_list.size(); i++) convergence_file << ",Nu_" << nusselt_zone_list[i];
   convergence_file << std::endl;
 
   // --->
@@ -1015,8 +1096,36 @@ int main(int argc, char **argv)
       Cl = ((Fx_p + Fx_f) * (-dir_y) + (Fy_p + Fy_f) * dir_x) / denom;
     }
 
+    // Nusselt numbers on -nusselt_zones, from the just-finalized T for this time step:
+    // Nu_local(face) = (T_BC - T_cell) / distance is the wall-normal dT/dx (sign chosen
+    // so positive Nu means heat flowing from a hot wall into the fluid), and Nu_avg is
+    // its face-length-weighted average -- the discrete form of DEB08/de Vahl Davis's
+    // Nu(y) = -dT/dX|_wall on this solver's ΔT = 1, L = 1 nondimensionalization.
+    std::vector<double> Nu_avg(nusselt_zone_list.size(), 0.0);
+    if (NUSSELT_ENABLED)
+    {
+      const PetscScalar * T_arr;
+      VecGetArrayRead(T, &T_arr);
+      for (unsigned int i = 0; i < nusselt_zone_list.size(); i++)
+      {
+        int zone = nusselt_zone_list[i];
+        double T_wall = T_BC[zone];
+        double Nu_length_sum = 0.0, length_sum = 0.0;
+        std::vector<NusseltFaceInfo> & info = nusselt_faces[zone];
+        for (unsigned int j = 0; j < info.size(); j++)
+        {
+          double Nu_local = (T_wall - T_arr[info[j].cell_id1-1]) / info[j].distance;
+          Nu_length_sum += Nu_local * info[j].length;
+          length_sum += info[j].length;
+        }
+        Nu_avg[i] = Nu_length_sum / length_sum;
+      }
+      VecRestoreArrayRead(T, &T_arr);
+    }
+
     convergence_file << time_step << "," << error_norm_u << "," << error_norm_v << "," << error_norm_T;
     if (FORCE_ENABLED) convergence_file << "," << Cf << "," << Cp << "," << Cd << "," << Cl;
+    for (unsigned int i = 0; i < Nu_avg.size(); i++) convergence_file << "," << Nu_avg[i];
     convergence_file << std::endl;
 
     // The last step is always written, whatever the interval: it carries the stream

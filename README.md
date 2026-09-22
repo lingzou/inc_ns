@@ -110,7 +110,34 @@ Optional top-level keys:
 -gamma           <0..1>       # convective blend factor (default 0.5) -- see below
 -newton          <true|false> # monolithic Newton-Krylov solver (default false)
 -force_zones     <z1,z2,...>  # track Cf/Cp/Cd/Cl on these wall zones (default: off)
+-nusselt_zones   <z1,z2,...>  # track the average Nusselt number on these wall zones (default: off)
 ```
+
+### `-nusselt_zones`: Nusselt-number post-processing
+
+Each zone named in `-nusselt_zones` (e.g. `-nusselt_zones 4,2` for a
+differentially heated cavity's hot and cold walls) must be a non-interior zone
+with a fixed `-bc_<zone>_T`. Every time step, the solver computes that wall's
+face-length-weighted average Nusselt number and appends it as a `Nu_<zone>`
+column in `<output_prefix>_convergence.csv`, using the one-sided estimate
+
+```
+Nu_local(face) = (T_BC - T_cell) / distance
+```
+
+(the same wall-normal-gradient discretization the energy equation itself uses
+for a Dirichlet-T boundary face), averaged over the zone's faces weighted by
+face length. Positive `Nu` means heat flowing from that wall into the fluid,
+so on a hot wall (heat leaving the wall) `Nu` comes out positive and on a cold
+wall (heat entering the wall) it comes out negative -- on a properly
+nondimensionalized, converged case (`-visc = sqrt(Pr/Ra)`,
+`-diff_t = 1/sqrt(Ra*Pr)`, i.e. ΔT = 1, L = 1) the hot- and cold-wall `Nu`
+columns should converge to the same magnitude with opposite sign, a free
+steady-state energy-balance check. Verified against Ra = 1e5 (`-visc
+0.0026645825 -diff_t 0.0037529465`, `input/cavity_buoyancy_1e5.i`): `Nu_4` =
+4.594 vs. DEB08's 4.613 / de Vahl Davis's 4.519, and `Nu_2` = -4.592, a 0.03%
+magnitude mismatch from `Nu_4` at steady state. Not supported together with
+`-newton true`.
 
 ### `-gamma`: the convective blend factor
 
