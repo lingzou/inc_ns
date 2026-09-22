@@ -10,8 +10,10 @@ std::map<int, double> U_BC, V_BC, p_BC;
 std::map<int, bool>   has_U_profile;
 std::map<int, ParabolicProfile> U_profile;
 std::map<int, bool>   is_interior_zone;
+std::map<int, bool>   is_velocity_inlet_zone;
 bool PRESSURE_ANCHOR_NEEDED = false;
 double DT, VISC;
+double GAMMA = 0.5;
 
 std::map<int, bool>   has_T_BC;
 std::map<int, double> T_BC;
@@ -44,6 +46,7 @@ void setupBoundaryConditions(FluentTwoDMesh * p_mesh)
       continue;
     }
     is_interior_zone[zone] = false;
+    is_velocity_inlet_zone[zone] = (type_str == "velocity_inlet");
 
     // Temperature B.C. is independent of the momentum/pressure B.C. type above --
     // any non-interior zone may optionally set a Dirichlet T; if omitted, it's adiabatic.
@@ -289,8 +292,6 @@ void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec b_UST
     {
       for (unsigned int j = 0; j < (it->second).size(); j++)
       {
-        double GAMMA = 0.5;
-
         Face * face = (it->second).at(j);
         long int face_id = face->id();
         long int cell_id1 = face->cell_id1();
@@ -310,12 +311,15 @@ void updateAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec b_UST
         double val[2], nval[2];
 
         col[0] = r1; col[1] = r2;
-        val[0] = (1.0 - GAMMA) * ff[face_id] * alpha_12;
-        val[1] = (1.0 - GAMMA) * ff[face_id] * alpha_21;
+        // GAMMA weights the central-difference (DEB-5) share, (1 - GAMMA) the upwind
+        // share -- matching DEB08's own convention (see GAMMA's declaration in
+        // inc_problems.h).
+        val[0] = GAMMA * ff[face_id] * alpha_12;
+        val[1] = GAMMA * ff[face_id] * alpha_21;
         if (ff[face_id] > 0.0)
-          val[0] += GAMMA * ff[face_id];
+          val[0] += (1.0 - GAMMA) * ff[face_id];
         else
-          val[1] += GAMMA * ff[face_id];
+          val[1] += (1.0 - GAMMA) * ff[face_id];
 
         nval[0] = -val[0]; nval[1] = -val[1];
         MatSetValues(M_USTAR, 1, &r1, 2, col, val, ADD_VALUES);
@@ -374,8 +378,6 @@ void updateEnergyAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face, Vec b_T,
     {
       for (unsigned int j = 0; j < (it->second).size(); j++)
       {
-        double GAMMA = 0.5;
-
         Face * face = (it->second).at(j);
         long int face_id = face->id();
         long int cell_id1 = face->cell_id1();
@@ -394,12 +396,15 @@ void updateEnergyAdvectionOperator(FluentTwoDMesh * p_mesh, Vec F_face, Vec b_T,
         double val[2], nval[2];
 
         col[0] = r1; col[1] = r2;
-        val[0] = (1.0 - GAMMA) * ff[face_id] * alpha_12;
-        val[1] = (1.0 - GAMMA) * ff[face_id] * alpha_21;
+        // GAMMA weights the central-difference (DEB-5) share, (1 - GAMMA) the upwind
+        // share -- see updateAdvectionOperator() above and GAMMA's declaration in
+        // inc_problems.h.
+        val[0] = GAMMA * ff[face_id] * alpha_12;
+        val[1] = GAMMA * ff[face_id] * alpha_21;
         if (ff[face_id] > 0.0)
-          val[0] += GAMMA * ff[face_id];
+          val[0] += (1.0 - GAMMA) * ff[face_id];
         else
-          val[1] += GAMMA * ff[face_id];
+          val[1] += (1.0 - GAMMA) * ff[face_id];
 
         nval[0] = -val[0]; nval[1] = -val[1];
         MatSetValues(M_T, 1, &r1, 2, col, val, ADD_VALUES);

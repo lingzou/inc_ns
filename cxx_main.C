@@ -1,5 +1,9 @@
+#include <algorithm>
+#include <cmath>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <vector>
 #include <petscsnes.h>
 
@@ -67,6 +71,9 @@ int main(int argc, char **argv)
   // T uniformly at -T_init forever regardless of its value, so existing input files
   // that predate the energy equation don't need to specify it.
   PetscOptionsGetReal(NULL, NULL, "-diff_t", &DIFF_T, NULL);
+  // -gamma is optional (default 0.5, set at GAMMA's definition in inc_problems.C):
+  // the DEB08 convective blend factor -- see GAMMA's declaration in inc_problems.h.
+  PetscOptionsGetReal(NULL, NULL, "-gamma", &GAMMA, NULL);
   PetscOptionsGetInt(NULL, NULL, "-n_timestep", &n_timestep_opt, &n_timestep_specified);
   // -output_interval is optional (default 1 = write every time step, the historical
   // behavior). Long pseudo-transient runs to steady state only need a coarse history:
@@ -90,6 +97,12 @@ int main(int argc, char **argv)
   if (output_interval < 1)
   {
     std::cout << "ERROR: '-output_interval' must be >= 1 (got " << output_interval << ")." << std::endl;
+    exit(1);
+  }
+
+  if (GAMMA < 0.0 || GAMMA > 1.0)
+  {
+    std::cout << "ERROR: '-gamma' must be in [0, 1] (got " << GAMMA << ")." << std::endl;
     exit(1);
   }
 
@@ -120,11 +133,6 @@ int main(int argc, char **argv)
 
   ExodusOutputContext * exoCtx = createExodusOutput(app.p_mesh, (output_prefix + ".e").c_str());
 
-  // Per-time-step convergence history (u/v L2 error), flushed after every row so an
-  // external process (e.g. gui.py) can tail it live while this run is still going.
-  std::ofstream convergence_file(output_prefix + "_convergence.csv");
-  convergence_file << "time_step,u_L2_error,v_L2_error,T_L2_error" << std::endl;
-
   std::cout << "# of faces: " << app.p_mesh->n_Faces() << std::endl;
 
   std::vector<Node*> & node_set = app.p_mesh->getNodeSet();
@@ -145,6 +153,121 @@ int main(int argc, char **argv)
 
   long int n_Cell = app.p_mesh->n_Cells();
   long int n_Face = app.p_mesh->n_Faces();
+
+  // --- Optional force/coefficient post-processing on -force_zones -------------------
+  // "-force_zones <comma-separated zone ids>" (e.g. "-force_zones 5") names the wall
+  // zone(s) making up a body (e.g. the cylinder in cylinder.i) whose drag/lift
+  // coefficients should be tracked every time step. Omit it entirely for problems
+  // (cavity, backward-facing-step, Poiseuille, ...) where this isn't meaningful --
+  // the convergence CSV then keeps its original 4-column format.
+  std::vector<int> force_zone_list;
+  {
+    char force_zones_str[PETSC_MAX_PATH_LEN];
+    PetscBool force_zones_flg = PETSC_FALSE;
+    PetscOptionsGetString(NULL, NULL, "-force_zones", force_zones_str, sizeof(force_zones_str), &force_zones_flg);
+    if (force_zones_flg)
+    {
+      std::stringstream ss(force_zones_str);
+      std::string token;
+      while (std::getline(ss, token, ','))
+        if (!token.empty())
+          force_zone_list.push_back(std::atoi(token.c_str()));
+    }
+  }
+  for (unsigned int i = 0; i < force_zone_list.size(); i++)
+    if (face_zone_map.find(force_zone_list[i]) == face_zone_map.end())
+    {
+      std::cout << "ERROR: -force_zones names zone " << force_zone_list[i] << " which does not exist in the mesh." << std::endl;
+      exit(1);
+    }
+
+  bool FORCE_ENABLED = !force_zone_list.empty();
+  if (FORCE_ENABLED && NEWTON_ON)
+  {
+    std::cout << "ERROR: -force_zones (Cf/Cp/Cd/Cl output) is not supported together with -newton true." << std::endl;
+    exit(1);
+  }
+
+  // Per boundary face on a -force_zones zone: n_hat is the unit face normal pointing
+  // from the adjacent fluid cell towards the wall (faceNormal()'s "cell 1 -> cell 2"
+  // convention), and distance is the perpendicular distance from that cell's centroid
+  // to the wall face -- the one-sided finite-difference denominator used below for the
+  // wall-normal velocity gradient (i.e. wall shear stress).
+  struct WallFaceInfo { Face * face; long int cell_id1; Vec3d n_hat; double distance; };
+  std::vector<WallFaceInfo> wall_faces;
+  double U_inf = 0.0, D_ref = 0.0, dir_x = 1.0, dir_y = 0.0;
+
+  if (FORCE_ENABLED)
+  {
+    // Reference velocity/direction: the (constant) velocity_inlet zone's B.C. vector.
+    bool found_inlet = false;
+    for (std::map<int, bool>::iterator it = is_velocity_inlet_zone.begin(); it != is_velocity_inlet_zone.end(); ++it)
+    {
+      if (!it->second) continue;
+      int zone = it->first;
+      if (has_U_profile[zone])
+      {
+        std::cout << "ERROR: -force_zones needs a plain (non-profile) velocity_inlet zone for the reference velocity, "
+                   << "but zone " << zone << " uses '-bc_" << zone << "_u_profile'." << std::endl;
+        exit(1);
+      }
+      double u_val = U_BC[zone], v_val = V_BC[zone];
+      U_inf = std::sqrt(u_val * u_val + v_val * v_val);
+      if (U_inf > 0.0) { dir_x = u_val / U_inf; dir_y = v_val / U_inf; }
+      found_inlet = true;
+      break;
+    }
+    if (!found_inlet)
+    {
+      std::cout << "ERROR: -force_zones is set but no 'velocity_inlet' zone was found to define the reference velocity." << std::endl;
+      exit(1);
+    }
+
+    // Reference length: bounding-box size of the -force_zones node set (for a circular
+    // cylinder, its x- and y-extents both equal the diameter; averaging the two damps
+    // the polygon-approximation bias from the mesh's finite node count).
+    double x_min = HUGE_VAL, x_max = -HUGE_VAL, y_min = HUGE_VAL, y_max = -HUGE_VAL;
+    for (unsigned int i = 0; i < force_zone_list.size(); i++)
+    {
+      std::vector<Face*> & faces = face_zone_map[force_zone_list[i]];
+      for (unsigned int j = 0; j < faces.size(); j++)
+      {
+        long int node_ids[2] = {faces[j]->node_id1(), faces[j]->node_id2()};
+        for (int k = 0; k < 2; k++)
+        {
+          double nx = node_set.at(node_ids[k]-1)->x();
+          double ny = node_set.at(node_ids[k]-1)->y();
+          x_min = std::min(x_min, nx); x_max = std::max(x_max, nx);
+          y_min = std::min(y_min, ny); y_max = std::max(y_max, ny);
+        }
+
+        // Cache this face's geometry for the per-time-step force integration below.
+        long int cell_id1 = faces[j]->cell_id1();
+        Point centroid = cell_set.at(cell_id1-1).centroid();
+        Point pt1 = node_set.at(node_ids[0]-1)->point();
+        Point pt2 = node_set.at(node_ids[1]-1)->point();
+        double distance = app.p_mesh->node_to_face_distance(centroid, pt1, pt2);
+        Vec3d face_normal = faces[j]->faceNormal();
+        double area = faces[j]->area();
+        Vec3d n_hat(face_normal.x() / area, face_normal.y() / area, 0.0);
+        WallFaceInfo wf = {faces[j], cell_id1, n_hat, distance};
+        wall_faces.push_back(wf);
+      }
+    }
+    D_ref = 0.5 * ((x_max - x_min) + (y_max - y_min));
+
+    std::cout << "Force/coefficient post-processing enabled on zone(s):";
+    for (unsigned int i = 0; i < force_zone_list.size(); i++) std::cout << " " << force_zone_list[i];
+    std::cout << "\n  U_inf = " << U_inf << ", direction = (" << dir_x << ", " << dir_y << "), D_ref = " << D_ref << std::endl;
+  }
+
+  // Per-time-step convergence history (u/v/T L2 error, plus Cf/Cp/Cd/Cl when
+  // -force_zones is set), flushed after every row so an external process (e.g. gui.py)
+  // can tail it live while this run is still going.
+  std::ofstream convergence_file(output_prefix + "_convergence.csv");
+  convergence_file << "time_step,u_L2_error,v_L2_error,T_L2_error";
+  if (FORCE_ENABLED) convergence_file << ",Cf,Cp,Cd,Cl";
+  convergence_file << std::endl;
 
   // --->
   std::cout << "GRAD START" << std::endl;
@@ -845,12 +968,56 @@ int main(int argc, char **argv)
     // std::cout << "    v L2 error = " << error_norm_v << std::endl;
     VecAXPY(T, -1.0, T_NEW); // now T is (T_NEW - T_old)
     VecNorm(T, NORM_2, &error_norm_T);
-    convergence_file << time_step << "," << error_norm_u << "," << error_norm_v << "," << error_norm_T << std::endl;
 
     VecCopy(u_STAR, u);
     VecCopy(v_STAR, v);
     VecCopy(T_NEW, T);
     // End of time step
+
+    // Drag/lift coefficients on -force_zones, from the just-finalized u, v, p for this
+    // time step: pressure force is p_cell * (outward face normal, magnitude = face
+    // length); viscous force uses the wall-tangential component of the near-wall cell's
+    // velocity divided by its distance to the wall as a one-sided estimate of the
+    // wall-normal velocity gradient (valid since the no-slip wall velocity is zero).
+    double Cf = 0.0, Cp = 0.0, Cd = 0.0, Cl = 0.0;
+    if (FORCE_ENABLED)
+    {
+      const PetscScalar * u_arr, * v_arr, * p_arr;
+      VecGetArrayRead(u, &u_arr);
+      VecGetArrayRead(v, &v_arr);
+      VecGetArrayRead(p, &p_arr);
+
+      double Fx_p = 0.0, Fy_p = 0.0, Fx_f = 0.0, Fy_f = 0.0;
+      for (unsigned int i = 0; i < wall_faces.size(); i++)
+      {
+        const WallFaceInfo & wf = wall_faces[i];
+        long int row = wf.cell_id1 - 1;
+        Vec3d face_normal = wf.face->faceNormal();
+        Fx_p += p_arr[row] * face_normal.x();
+        Fy_p += p_arr[row] * face_normal.y();
+
+        double Vx = u_arr[row], Vy = v_arr[row];
+        double Vn = Vx * wf.n_hat.x() + Vy * wf.n_hat.y();
+        double Vtx = Vx - Vn * wf.n_hat.x();
+        double Vty = Vy - Vn * wf.n_hat.y();
+        Fx_f += VISC * Vtx / wf.distance * wf.face->area();
+        Fy_f += VISC * Vty / wf.distance * wf.face->area();
+      }
+      VecRestoreArrayRead(u, &u_arr);
+      VecRestoreArrayRead(v, &v_arr);
+      VecRestoreArrayRead(p, &p_arr);
+
+      double RHO = 1.0; // matches RHO hardcoded throughout this file
+      double denom = 0.5 * RHO * U_inf * U_inf * D_ref;
+      Cp = (Fx_p * dir_x + Fy_p * dir_y) / denom;
+      Cf = (Fx_f * dir_x + Fy_f * dir_y) / denom;
+      Cd = Cp + Cf;
+      Cl = ((Fx_p + Fx_f) * (-dir_y) + (Fy_p + Fy_f) * dir_x) / denom;
+    }
+
+    convergence_file << time_step << "," << error_norm_u << "," << error_norm_v << "," << error_norm_T;
+    if (FORCE_ENABLED) convergence_file << "," << Cf << "," << Cp << "," << Cd << "," << Cl;
+    convergence_file << std::endl;
 
     // The last step is always written, whatever the interval: it carries the stream
     // function and, for the steady-state runs, it is the answer.

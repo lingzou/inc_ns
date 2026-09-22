@@ -19,6 +19,12 @@ extern std::map<int, bool>   has_U_BC, has_V_BC, has_p_BC;
 extern std::map<int, double> U_BC, V_BC, p_BC;
 extern double DT, VISC;
 
+// Convective blend factor (see updateAdvectionOperator()/updateEnergyAdvectionOperator()
+// in inc_problems.C): GAMMA weights the DEB-5 central-difference share of the face value,
+// (1 - GAMMA) the upwind share, matching DEB08's own convention. Optional via "-gamma"
+// (default 0.5); must satisfy 0 <= GAMMA <= 1, checked in cxx_main.C after it's read.
+extern double GAMMA;
+
 // Optional per-zone spatially-varying replacement for a constant U_BC[zone], selected
 // via "-bc_<zone>_u_profile parabolic" (see setupBoundaryConditions() below). Only u
 // supports a profile -- v remains a plain constant, as today.
@@ -58,6 +64,12 @@ extern bool NEWTON_ON;
 // setupBoundaryConditions() below from each zone's "-bc_<zone>_type", so callers no
 // longer need to hardcode a specific zone number (e.g. "7") as "the" interior zone.
 extern std::map<int, bool> is_interior_zone;
+
+// True for a zone whose "-bc_<zone>_type" is "velocity_inlet" -- populated alongside
+// is_interior_zone above by setupBoundaryConditions(). Used by cxx_main.C to
+// auto-detect the free-stream reference velocity/direction for -force_zones
+// (drag/lift coefficient) post-processing.
+extern std::map<int, bool> is_velocity_inlet_zone;
 
 // True when no zone provides a pressure Dirichlet B.C. (e.g. the lid-driven cavity,
 // which is walls all the way around). The pressure equation is otherwise only defined
