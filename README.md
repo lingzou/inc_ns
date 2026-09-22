@@ -107,7 +107,39 @@ Optional top-level keys:
 -diff_t          <value>      # thermal diffusivity (default 0)
 -T_init          <value>      # uniform initial temperature (default 0)
 -buoyancy        <true|false> # Boussinesq buoyancy source in v-momentum (default false)
+-gamma           <0..1>       # convective blend factor (default 0.5) -- see below
+-newton          <true|false> # monolithic Newton-Krylov solver (default false)
+-force_zones     <z1,z2,...>  # track Cf/Cp/Cd/Cl on these wall zones (default: off)
 ```
+
+### `-gamma`: the convective blend factor
+
+DEB08's upwinding factor. `-gamma` weights the central-difference share of each face
+value and `1 - gamma` the first-order upwind share, so **`1.0` is pure central difference
+and `0.0` is pure upwind**. The default is `0.5`, i.e. 50% upwinding -- enough numerical
+diffusion to matter, so prefer setting it explicitly in any case whose answer you intend
+to quote.
+
+How much it matters is strongly problem-dependent, and not in the way you might guess:
+
+| benchmark | `gamma` 0.5 -> 1.0, mesh fixed | mesh refined, `gamma` fixed |
+|---|---|---|
+| backward-facing step, reattachment length at Re=300 | 5.64 -> 6.65 (**+18%**) | -- |
+| lid-driven cavity vs Ghia, max error at Re=3200 | 0.174 -> 0.153 (-12%) | 0.174 -> 0.094 (**-46%**) |
+
+Reference values: Armaly et al. give Lr/S ~ 6.6 for the step, so `gamma = 1.0` is close to
+right there and the default alone accounts for a 16% under-prediction. The cavity is the
+other way round -- it is resolution-limited, and refining the mesh buys four times what
+the blend factor does. The reason is physical: the step's reattachment length is set by
+the spreading rate of a free shear layer, which false diffusion attacks head-on, whereas
+the cavity's centreline error at high Re is set by thin wall layers and corner vortices.
+DEB08 section 4.4 hedges on both causes at once ("the lower-order convective scheme and
+smaller mesh size"); the table above says which one dominates where.
+
+Pure central difference (`1.0`) was stable on every case tried here, but it converges to
+steady state more slowly than a blended scheme and has no upwind stabilization to fall
+back on, so it is not unconditionally safe on coarser or more skewed meshes.
+
 ***important***
 
 When `-buoyancy = true`, the simulation is no-longer true transient simulations, while it becomes

@@ -7,6 +7,15 @@
 -visc 0.01
 -n_timestep 20
 
+# DEB08's convective blend factor: 1.0 = pure central difference, 0.0 = pure first-order
+# upwind. Set explicitly rather than inheriting the 0.5 default. This case is the most
+# gamma-sensitive one in the repo: run to steady state (t = 150), the reattachment length
+# is Lr/S = 5.64 at gamma = 0.5 but 6.65 at gamma = 1.0, against Armaly et al.'s ~6.6 --
+# so the default alone accounts for a 16% under-prediction. Reattachment is set by the
+# spreading rate of the free shear layer off the step, which false diffusion attacks
+# directly; see docs/newton_krylov_formulation.tex section "Choice of the blend factor".
+-gamma 1.0
+
 # Zone 1: inlet -- velocity inlet, parabolic profile
 # Inlet spans y in [-1, 0] (see mesh/backward_facing_step.geo, points A/B).
 # Average velocity of a parabolic profile is (2/3)*u_max, so u_max = 1.5 * 1.5 = 2.25

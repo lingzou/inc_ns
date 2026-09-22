@@ -4,6 +4,14 @@
 -visc 0.001
 -n_timestep 20
 
+# DEB08's convective blend factor: 1.0 = pure central difference, 0.0 = pure first-order
+# upwind. Set explicitly rather than inheriting the 0.5 default -- 50% upwinding is a lot
+# of numerical diffusion to apply silently, and on the separated flows it matters (it
+# shortens the backward-facing step's recirculation bubble by 16% at Re = 300). At Re = 40
+# it also moves this case's drag: C_D = 1.810 at gamma = 0.5 vs 1.729 at gamma = 1.0,
+# against DEB08 Table 2's 1.599.
+-gamma 1.0
+
 # Zone 1: velocity inlet
 -bc_1_type velocity_inlet
 -bc_1_u 1.0

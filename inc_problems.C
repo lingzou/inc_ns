@@ -449,6 +449,7 @@ void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec 
   VecGetArray(v_STAR, &vv_star);
   VecGetArray(b_p, &bb_p);
 
+  std::vector<FluentTriCell> & cell_set = p_mesh->getCellSet();
   std::map<int, std::vector<Face*> > & face_zone_map = p_mesh->getFaceZoneMap();
   for (std::map<int, std::vector<Face*> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
   {
@@ -473,13 +474,27 @@ void updateMassVeclocities(FluentTwoDMesh * p_mesh, Vec u_STAR, Vec v_STAR, Vec 
       for (unsigned int j = 0; j < (it->second).size(); j++)
       {
         Face * face = (it->second).at(j);
-        double r = face->distance_ratio();
 
         long int cell_id1 = face->cell_id1();
         long int cell_id2 = face->cell_id2();
 
-        double u_face = uu_star[cell_id1-1] * (1.0 - r) + uu_star[cell_id2-1] * r;
-        double v_face = vv_star[cell_id1-1] * (1.0 - r) + vv_star[cell_id2-1] * r;
+        // DEB08 eq. (5): volume-weighted, the same interpolation the convection operator
+        // and the gradient stencils use. This used to weight by face->distance_ratio()
+        // instead, which is numerically the same thing but only by accident of the cell
+        // type: for a triangle the centroid sits one third of the way up from any edge,
+        // so v = (1/2) A_f H = (3/2) A_f d for the face's own perpendicular distance d,
+        // the A_f cancels in the ratio, and v2/(v1+v2) == d2/(d1+d2) exactly. The
+        // identity is specific to triangles and would silently break on any other cell
+        // shape, so express eq. (5) directly rather than lean on it.
+        const FluentTriCell & cell_1 = cell_set.at(cell_id1-1);
+        const FluentTriCell & cell_2 = cell_set.at(cell_id2-1);
+        double v1 = cell_1.volume();
+        double v2 = cell_2.volume();
+        double alpha_12 = v2 / (v1 + v2);
+        double alpha_21 = 1.0 - alpha_12;
+
+        double u_face = alpha_12 * uu_star[cell_id1-1] + alpha_21 * uu_star[cell_id2-1];
+        double v_face = alpha_12 * vv_star[cell_id1-1] + alpha_21 * vv_star[cell_id2-1];
 
         Vec3d face_normal = face->faceNormal();
 
