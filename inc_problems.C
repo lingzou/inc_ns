@@ -511,6 +511,7 @@ void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Ve
   VecGetArray(gradP_x, &grad_p_x);  VecGetArray(gradP_y, &grad_p_y);
 
   std::vector<FluentTriCell> & cell_set = p_mesh->getCellSet();
+  std::vector<Node*> & node_set = p_mesh->getNodeSet();
   std::map<int, std::vector<Face*> > & face_zone_map = p_mesh->getFaceZoneMap();
   for (std::map<int, std::vector<Face*> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
   {
@@ -519,9 +520,38 @@ void updateFfaceStar(FluentTwoDMesh * p_mesh, Vec F_face_star, Vec F_0f_star, Ve
     {
       for (unsigned int j = 0; j < (it->second).size(); j++)
       {
-        // Copy from F_0f_star (as boundary conditions have been setup there)
         Face * face = (it->second).at(j);
-        ff[face->id()] = f0f[face->id()];
+
+        if (!has_p_BC[zone])
+        {
+          // Homogeneous Neumann pressure -- every velocity-specified zone (wall, inlet,
+          // slip wall), per DEB08 section 3.4.1. (grad p)_b . dS_b is zero there, so
+          // eq. (16) leaves the mass-velocity flux unchanged. M_P contributes nothing
+          // for these faces either, so the two stay consistent.
+          ff[face->id()] = f0f[face->id()];
+          continue;
+        }
+
+        // Dirichlet pressure (pressure_outlet). The diffusion assembly in cxx_main.C
+        // DOES give M_P/b_p an A_b (p_BC - p_C0) / dX_b term for this face, so eq. (16)'s
+        // -dt (grad p)_f . dS_f has to be applied here as well. Copying F_0f through
+        // instead -- as this branch used to for every boundary face -- solves the
+        // pressure equation for one flux field and then hands back a different one,
+        // leaving sum_f F_f non-zero in exactly the cells that touch this zone (measured:
+        // ~0.8% of throughput lost on poiseuille.i at dt = 0.1, growing linearly in dt).
+        //
+        // Normal term only, no cross diffusion: that is what M_P assembles here, and it
+        // matches DEB08 section 3.5.1, which uses the perpendicular distance dX_bt from
+        // the cell centroid to the boundary face and drops the nonorthogonal part.
+        // node_to_face_distance() is the same call cxx_main.C uses, so the two agree to
+        // the last bit rather than merely to truncation error.
+        long int cell_id1 = face->cell_id1();
+        const FluentTriCell & cell = cell_set.at(cell_id1-1);
+        double distance = p_mesh->node_to_face_distance(cell.centroid(),
+                                                        node_set.at(face->node_id1()-1)->point(),
+                                                        node_set.at(face->node_id2()-1)->point());
+        double pressure_correction = face->area() * (p_BC[zone] - pp[cell_id1-1]) / distance;
+        ff[face->id()] = f0f[face->id()] - DT * pressure_correction;
       }
     }
     else
