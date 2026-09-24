@@ -51,7 +51,7 @@ for dt in "${DTS[@]}"; do
   done
   printf "%-12s dt=%-8s %b\n" "$PROBLEM" "$dt" "both modes ran \e[0;32m[ok]\e[m"
 
-  args+=("$dt" "output/${tag}_out.e" "output/${tag}_out_newton.e")
+  args+=("$dt" "input/${tag}_out.e" "input/${tag}_out_newton.e")
 done
 
 echo
@@ -60,8 +60,8 @@ status=$?
 
 rm -f "${tmp_inputs[@]}"
 for dt in "${DTS[@]}"; do
-  rm -f output/_newtontest_${PROBLEM}_dt${dt}_out*.e \
-        output/_newtontest_${PROBLEM}_dt${dt}_out*_convergence.csv
+  rm -f input/_newtontest_${PROBLEM}_dt${dt}_out*.e \
+        input/_newtontest_${PROBLEM}_dt${dt}_out*_convergence.csv
 done
 
 exit $status

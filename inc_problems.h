@@ -139,8 +139,8 @@ void evaluatePressureGradientValues(FluentTwoDMesh * p_mesh, Vec p, Vec gradP_x,
 //void updatePressureGradientAsSource(FluentTwoDMesh * p_mesh, Vec p, Vec p_src_x, Vec p_src_y, GRAD * grad_p);
 void updatePressureGradientAsSource(FluentTwoDMesh * p_mesh, Vec b_USTAR, Vec b_VSTAR, Vec grad_p_x, Vec grad_p_y);
 
-// Writes "<output_prefix>_<time_step>.vtu", e.g. output_prefix "output/cylinder_out"
-// produces "output/cylinder_out_0.vtu", "output/cylinder_out_1.vtu", etc.
+// Writes "<output_prefix>_<time_step>.vtu", e.g. output_prefix "input/cylinder_out"
+// produces "input/cylinder_out_0.vtu", "input/cylinder_out_1.vtu", etc.
 void writeOutputFile(const std::string & output_prefix, int time_step, FluentTwoDMesh * p_mesh, Vec u, Vec v, Vec p, Vec F_face_star, bool computeStreamFunction);
 
 struct GRAD

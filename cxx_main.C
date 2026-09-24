@@ -116,14 +116,17 @@ int main(int argc, char **argv)
   setupBoundaryConditions(app.p_mesh);
 
   // Derive the output basename from the input file, e.g. "cylinder.i" -> "cylinder", so
-  // running with different -i files never overwrites each other's output.
+  // running with different -i files never overwrites each other's output. Output files
+  // are written alongside the input file (same directory), not to a fixed "output/" dir,
+  // so results stay next to the case that produced them.
   std::string input_path(inputFile);
   size_t slash = input_path.find_last_of("/\\");
+  std::string input_dir = (slash == std::string::npos) ? "" : input_path.substr(0, slash + 1);
   std::string input_base = (slash == std::string::npos) ? input_path : input_path.substr(slash + 1);
   size_t dot = input_base.find_last_of('.');
   if (dot != std::string::npos)
     input_base = input_base.substr(0, dot);
-  std::string output_prefix = "output/" + input_base + "_out";
+  std::string output_prefix = input_dir + input_base + "_out";
   // The Newton path writes to its own "<base>_out_newton.*" so that running the same
   // input file both ways leaves two results side by side to compare -- the refinement
   // -rate check in runNewtonTests.sh depends on this -- and so that -newton can never

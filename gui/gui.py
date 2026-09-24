@@ -19,9 +19,10 @@ POLL_MS = 300
 
 
 def convergence_csv_for(input_path):
-    """Mirror cxx_main.C's output_prefix logic: <base>.i -> output/<base>_out_convergence.csv"""
+    """Mirror cxx_main.C's output_prefix logic: <dir>/<base>.i -> <dir>/<base>_out_convergence.csv"""
+    input_dir = os.path.dirname(input_path)
     base = os.path.splitext(os.path.basename(input_path))[0]
-    return os.path.join(PROJECT_ROOT, "output", base + "_out_convergence.csv")
+    return os.path.join(input_dir, base + "_out_convergence.csv")
 
 
 class RunnerApp:
@@ -128,9 +129,9 @@ class RunnerApp:
         self.t_errors = []
         self._update_plot()
 
+        input_dir = os.path.dirname(self.input_path)
         base = os.path.splitext(os.path.basename(self.input_path))[0]
-        self.log_path = os.path.join(PROJECT_ROOT, "output", base + "_out_gui.log")
-        os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
+        self.log_path = os.path.join(input_dir, base + "_out_gui.log")
         log_file = open(self.log_path, "w")
 
         self.proc = subprocess.Popen(

@@ -9,7 +9,7 @@ do
   log=$(mktemp)
   ./build/inc_exec -i input/${problem}.i > "$log" 2>&1
 
-  temp=$($EXODIFF output/${problem}_out.e expected/${problem}_out.e)
+  temp=$($EXODIFF input/${problem}_out.e expected/${problem}_out.e)
   error=$?
   if [ $error -eq 0 ]
   then

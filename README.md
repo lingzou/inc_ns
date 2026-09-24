@@ -59,8 +59,8 @@ as a template, not something to run verbatim elsewhere.
 ```
 
 Everything is driven by the `-i <file>.i` input file (see **Input file structure**
-below). Output is written to `output/`, named from the input file's own basename (e.g.
-`cylinder.i` -> `cylinder_out.*`):
+below). Output is written alongside the input file, named from its own basename (e.g.
+`input/cylinder.i` -> `input/cylinder_out.*`):
 
 - `<problem>_out.e` -- Exodus output (open in ParaView).
 - `<problem>_out_<step>.vtu` -- one VTU per time step, kept alongside Exodus for now.
