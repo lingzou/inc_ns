@@ -549,7 +549,12 @@ int main(int argc, char **argv)
   KSPCreate(PETSC_COMM_WORLD, &ksp_VSTAR);
   KSPCreate(PETSC_COMM_WORLD, &ksp_P);
   KSPCreate(PETSC_COMM_WORLD, &ksp_T);
-  KSPSetType(ksp_P, KSPCG);
+  // M_P is not symmetric (one-sided cross-diffusion stencil), so CG has no convergence
+  // theory here; GMRES matches CG's iteration counts and solution on every shipped case
+  // while actually being valid for a nonsymmetric operator (see to-do item 10). BCGS was
+  // also tried and rejected: it silently fails the outer Picard loop on two of the four
+  // shipped cases despite each individual KSPSolve() reporting CONVERGED_RTOL.
+  KSPSetType(ksp_P, KSPGMRES);
   // M_P discretizes a Poisson-like pressure equation, so PCGAMG is probably the best preconditioner
   PC pc_P;
   KSPGetPC(ksp_P, &pc_P);
