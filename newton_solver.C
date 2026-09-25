@@ -83,6 +83,7 @@ void computeFaceFluxes(FluentTwoDMesh * p_mesh, Vec u, Vec v, Vec p,
   VecGetArray(F_0f, &f0f);   VecGetArray(F_f, &ff);
 
   std::vector<FluentTriCell> & cell_set = p_mesh->getCellSet();
+  std::vector<Node*> & node_set = p_mesh->getNodeSet();
   std::map<int, std::vector<Face*> > & face_zone_map = p_mesh->getFaceZoneMap();
   for (std::map<int, std::vector<Face*> >::iterator it = face_zone_map.begin(); it != face_zone_map.end(); ++it)
   {
@@ -97,10 +98,33 @@ void computeFaceFluxes(FluentTwoDMesh * p_mesh, Vec u, Vec v, Vec p,
         double u_face = has_U_BC[zone] ? evaluateFaceU_BC(zone, face, p_mesh) : uu[cell_id1-1];
         double v_face = has_V_BC[zone] ? V_BC[zone] : vv[cell_id1-1];
         double fface = u_face * face_normal.x() + v_face * face_normal.y();
-
-        // No pressure correction on boundary faces, matching updateFfaceStar().
         f0f[face->id()] = fface;
-        ff[face->id()]  = fface;
+
+        if (!has_p_BC[zone])
+        {
+          // Homogeneous Neumann pressure (wall/inlet/slip wall): nothing to correct,
+          // matching updateFfaceStar().
+          ff[face->id()] = fface;
+          continue;
+        }
+
+        // pressure_outlet. u_face above is the cell's own solved velocity, which
+        // already reflects that cell's momentum balance built with the SMOOTH
+        // (cell-centered) pressure gradient (gpx/gpy at cell_id1). Converting to the
+        // COMPACT boundary term that M_P/updateFfaceStar() assume (DEB08 3.5.1: normal
+        // term only, no cross diffusion) means subtracting the embedded smooth
+        // contribution and adding the compact one -- the same "compact minus smooth"
+        // logic the interior branch below uses, with the boundary's one-sided compact
+        // term standing in for compact_grad_dS. Copying fface straight through, as this
+        // branch used to for every non-interior zone, is only correct for the
+        // homogeneous-Neumann zones above; see docs/to-do-list-09-22-2026.md item 1.
+        const FluentTriCell & cell = cell_set.at(cell_id1-1);
+        double distance = p_mesh->node_to_face_distance(cell.centroid(),
+                                                         node_set.at(face->node_id1()-1)->point(),
+                                                         node_set.at(face->node_id2()-1)->point());
+        double compact_dS = face->area() * (p_BC[zone] - pp[cell_id1-1]) / distance;
+        double smooth_dS  = gpx[cell_id1-1] * face_normal.x() + gpy[cell_id1-1] * face_normal.y();
+        ff[face->id()] = fface - DT * (compact_dS - smooth_dS);
       }
     }
     else
