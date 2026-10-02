@@ -13,15 +13,18 @@ the steady, symmetric regime: Re = 10, 20, 40.
   table comparing the solver's C_D (split into pressure/friction parts)
   against Dennis & Chang (1970) and DEB08 reference values, and writes
   `drag_vs_Re.png`.
+- `plot_field_contour.py` — contour-plots a field (default: pressure) from a
+  `*_out.e` exodus file over the mesh triangulation, with labeled contour
+  lines. Works for any benchmark case, not just this one.
 
 ## Usage
 
 ```
 python3 run_Re_sweep.py
 python3 report_drag.py
-```
+python3 plot_field_contour.py cylinder_Re10_out.e
 
-(Other scripts in this folder — `run_blockage_study.py`,
-`run_refinement_study.py`, `run_upstream_study.py`, and their
-`report_*.py` counterparts — are separate mesh-sensitivity studies, not
-part of this basic sweep.)
+python3 plot_field_contour.py cylinder_Re10_out.e --vmin -0.50 --vmax 0.70 --contours 23
+python3 plot_field_contour.py cylinder_Re20_out.e --vmin -0.50 --vmax 0.60 --contours 21
+python3 plot_field_contour.py cylinder_Re40_out.e --vmin -0.45 --vmax 0.55 --contours 19
+```

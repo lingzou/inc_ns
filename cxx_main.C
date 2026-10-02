@@ -6,6 +6,7 @@
 #include <sstream>
 #include <vector>
 #include <petscsnes.h>
+#include <petsctime.h>
 
 #include "inc_problems.h"
 #include "ExodusOutput.h"
@@ -893,6 +894,11 @@ int main(int argc, char **argv)
 
   unsigned int N_TIMESTEP = (unsigned int)n_timestep_opt;
 
+  // Wall-clock time spent actually marching in time, excluding mesh read/setup above
+  // and (for the segregated path) the Vec/Mat/KSP teardown below.
+  PetscLogDouble t_marching_start, t_marching_end;
+  PetscTime(&t_marching_start);
+
   // Monolithic Newton-Krylov path ("-newton true"). Everything above this point is
   // shared setup -- mesh, B.C.s, the GRAD stencils, and the assembled diffusion +
   // time-derivative operators -- all of which the residual in newton_solver.C reuses
@@ -915,6 +921,12 @@ int main(int argc, char **argv)
     cfg.convergence_file = &convergence_file;
 
     runNewtonSolver(cfg);
+
+    PetscTime(&t_marching_end);
+    std::cout << "Time marching finished: " << N_TIMESTEP << " steps in "
+              << (t_marching_end - t_marching_start) << " s ("
+              << (t_marching_end - t_marching_start) / N_TIMESTEP << " s/step)."
+              << std::endl;
 
     closeExodusOutput(exoCtx);
     VecDestroy(&u); VecDestroy(&v); VecDestroy(&p); VecDestroy(&u_STAR); VecDestroy(&v_STAR);
@@ -1149,6 +1161,12 @@ int main(int argc, char **argv)
     // std::cout << "Time Step " << time_step << " end <<<<<<<<<" << std::endl << std::endl;
     std::cout << "  [ok]\n";
   }
+
+  PetscTime(&t_marching_end);
+  std::cout << "Time marching finished: " << N_TIMESTEP << " steps in "
+            << (t_marching_end - t_marching_start) << " s ("
+            << (t_marching_end - t_marching_start) / N_TIMESTEP << " s/step)."
+            << std::endl;
 
   closeExodusOutput(exoCtx);
 

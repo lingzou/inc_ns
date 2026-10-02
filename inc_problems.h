@@ -48,8 +48,10 @@ extern std::map<int, double> T_BC;
 // caller, mirroring how VISC is handed -visc directly rather than derived from Re here.
 extern double DIFF_T;
 // Set via "-buoyancy true/false" (default false). Gates whether updateBuoyancySource()
-// is called at all -- T is always solved regardless (see cxx_main.C), so with this off
-// T is a pure passive scalar with no feedback into momentum.
+// is called at all -- the segregated path solves T regardless (see cxx_main.C), so with
+// this off T is a pure passive scalar with no feedback into momentum. The Newton path
+// additionally drops T from its state vector when neither this nor any has_T_BC is set,
+// since the energy residual is then identically zero (see newton_solver.C).
 extern bool BUOYANCY_ON;
 
 // Set via "-newton true/false" (default false). Selects the monolithic Newton-Krylov

@@ -8,9 +8,11 @@
  * See newton_solver.h for what this is and why the residual is built out of the existing
  * operators rather than re-deriving the discretization.
  *
- * All four blocks (u, v, p, T) are live. The energy equation is inside the nonlinear
- * solve rather than lagged behind it, which is the point of the exercise: it closes the
+ * When temperature is a live unknown, the energy equation is inside the nonlinear solve
+ * rather than lagged behind it, which is the point of the exercise: it closes the
  * T -> buoyancy -> momentum -> advection -> T cycle that the segregated path leaves open.
+ * On a case where nothing can move T -- no buoyancy, no temperature B.C. -- the block is
+ * dropped from the state vector instead; see resolveSolveT().
  *
  * One thing NOT to expect: agreement with the segregated solver at fixed dt. The two are
  * different discrete problems -- the segregated scheme interpolates the face mass flux
@@ -21,17 +23,37 @@
  * refinement rate rather than an equality.
  */
 
-// DOF layout: interlaced, 4 per cell -- (u,v,p,T) for cell 0, then cell 1, ...
-// Interlacing keeps each cell's 4x4 coupling block contiguous, which is what ILU and a
+// DOF layout: interlaced, (u,v,p[,T]) for cell 0, then cell 1, ...
+// Interlacing keeps each cell's coupling block contiguous, which is what ILU and a
 // later PCFIELDSPLIT both want. Cell ids from the mesh are 1-based; DOF indices are not.
-static const PetscInt N_DOF_PER_CELL = 4;
-static inline PetscInt dof_u(long int cell_id) { return N_DOF_PER_CELL * (cell_id - 1) + 0; }
-static inline PetscInt dof_v(long int cell_id) { return N_DOF_PER_CELL * (cell_id - 1) + 1; }
-static inline PetscInt dof_p(long int cell_id) { return N_DOF_PER_CELL * (cell_id - 1) + 2; }
-static inline PetscInt dof_T(long int cell_id) { return N_DOF_PER_CELL * (cell_id - 1) + 3; }
+//
+// T is carried only when it is a live unknown -- see resolveSolveT(). On an isothermal
+// case the energy residual is identically zero, so the T columns are structurally zero
+// and buy nothing except colours: the FD Jacobian costs one residual evaluation per
+// colour, and the colour count scales with the column count. Both are set once in
+// runNewtonSolver() before anything sized by them, and never change afterwards.
+static PetscInt N_DOF_PER_CELL = 4;
+static PetscBool SOLVE_T = PETSC_TRUE;
 
 namespace
 {
+
+// T is a live unknown if anything can move it: a buoyancy coupling back into momentum, or
+// a temperature B.C. driving it away from its uniform initial value. With neither, T stays
+// at T_init for all time and M_T*T - b_T is identically zero -- true of cavity, cylinder,
+// poiseuille and backward_facing_step, all four of which report T_L2_error = 0 at every
+// step. -newton_solve_T forces the issue either way, which is what makes an A/B measurement
+// on one case possible; it is not needed for correctness.
+bool resolveSolveT()
+{
+  bool live = BUOYANCY_ON;
+  for (std::map<int, bool>::const_iterator it = has_T_BC.begin(); it != has_T_BC.end(); ++it)
+    if (it->second) live = true;
+
+  PetscBool solve_T = live ? PETSC_TRUE : PETSC_FALSE;
+  PetscOptionsGetBool(NULL, NULL, "-newton_solve_T", &solve_T, NULL);
+  return solve_T == PETSC_TRUE;
+}
 
 // Everything FormResidual() needs. Pointers into cfg are borrowed, not owned; the Vecs
 // and Mats created in runNewtonSolver() are destroyed there.
@@ -252,20 +274,22 @@ PetscErrorCode FormResidual(SNES /*snes*/, Vec X, Vec R, void * ctx)
   // --- unpack X into the per-field scratch vectors -------------------------------
   {
     const PetscScalar * xx;
-    PetscScalar * uu, * vv, * pp, * tt;
+    PetscScalar * uu, * vv, * pp, * tt = NULL;
     VecGetArrayRead(X, &xx);
     VecGetArray(nc->u_w, &uu); VecGetArray(nc->v_w, &vv);
-    VecGetArray(nc->p_w, &pp); VecGetArray(nc->T_w, &tt);
+    VecGetArray(nc->p_w, &pp);
+    if (SOLVE_T) VecGetArray(nc->T_w, &tt);
     for (long int i = 0; i < n_Cell; i++)
     {
       uu[i] = xx[N_DOF_PER_CELL*i + 0];
       vv[i] = xx[N_DOF_PER_CELL*i + 1];
       pp[i] = xx[N_DOF_PER_CELL*i + 2];
-      tt[i] = xx[N_DOF_PER_CELL*i + 3];
+      if (SOLVE_T) tt[i] = xx[N_DOF_PER_CELL*i + 3];
     }
     VecRestoreArrayRead(X, &xx);
     VecRestoreArray(nc->u_w, &uu); VecRestoreArray(nc->v_w, &vv);
-    VecRestoreArray(nc->p_w, &pp); VecRestoreArray(nc->T_w, &tt);
+    VecRestoreArray(nc->p_w, &pp);
+    if (SOLVE_T) VecRestoreArray(nc->T_w, &tt);
   }
 
   // --- face mass flux at the current iterate -------------------------------------
@@ -300,35 +324,44 @@ PetscErrorCode FormResidual(SNES /*snes*/, Vec X, Vec R, void * ctx)
   // converged against each other. Together with the buoyancy source added to b_v_work
   // above -- the B_vT block -- this is what removes the one-time-step temperature lag
   // that makes "-buoyancy true" only a pseudo-transient in the segregated solver.
-  MatCopy(cfg->M_T_FIXED, cfg->M_T, SAME_NONZERO_PATTERN);
-  VecCopy(nc->b_T_step, nc->b_T_work);
-  updateEnergyAdvectionOperator(p_mesh, nc->F_f, nc->b_T_work, cfg->M_T);
-  MatMult(cfg->M_T, nc->T_w, nc->R_T); VecAXPY(nc->R_T, -1.0, nc->b_T_work);
+  //
+  // Skipped entirely when T is not an unknown: this block is a MatCopy, an operator
+  // rebuild and a MatMult on EVERY residual evaluation, and there are 64 of those per
+  // Jacobian, all to produce a vector of zeros.
+  if (SOLVE_T)
+  {
+    MatCopy(cfg->M_T_FIXED, cfg->M_T, SAME_NONZERO_PATTERN);
+    VecCopy(nc->b_T_step, nc->b_T_work);
+    updateEnergyAdvectionOperator(p_mesh, nc->F_f, nc->b_T_work, cfg->M_T);
+    MatMult(cfg->M_T, nc->T_w, nc->R_T); VecAXPY(nc->R_T, -1.0, nc->b_T_work);
+  }
 
   // --- interleave into R ------------------------------------------------------------
   {
-    const PetscScalar * ru, * rv, * rt;
+    const PetscScalar * ru, * rv, * rt = NULL;
     PetscScalar * rr;
-    VecGetArrayRead(nc->R_u, &ru); VecGetArrayRead(nc->R_v, &rv); VecGetArrayRead(nc->R_T, &rt);
+    VecGetArrayRead(nc->R_u, &ru); VecGetArrayRead(nc->R_v, &rv);
+    if (SOLVE_T) VecGetArrayRead(nc->R_T, &rt);
     VecGetArray(R, &rr);
     for (long int i = 0; i < n_Cell; i++)
     {
       rr[N_DOF_PER_CELL*i + 0] = ru[i];
       rr[N_DOF_PER_CELL*i + 1] = rv[i];
       rr[N_DOF_PER_CELL*i + 2] = nc->div[i];
-      rr[N_DOF_PER_CELL*i + 3] = rt[i];
+      if (SOLVE_T) rr[N_DOF_PER_CELL*i + 3] = rt[i];
     }
-    VecRestoreArrayRead(nc->R_u, &ru); VecRestoreArrayRead(nc->R_v, &rv); VecRestoreArrayRead(nc->R_T, &rt);
+    VecRestoreArrayRead(nc->R_u, &ru); VecRestoreArrayRead(nc->R_v, &rv);
+    if (SOLVE_T) VecRestoreArrayRead(nc->R_T, &rt);
     VecRestoreArray(R, &rr);
   }
 
   return 0;
 }
 
-// Two-ring face adjacency, blocked 4x4. This must be a SUPERSET of the true Jacobian
-// pattern: too small silently corrupts an FD-coloured Jacobian, too large only costs
-// extra colors. Two rings is enough because every dependence path is at most that long
-// -- the nonorthogonal cross-diffusion in M_*_FIXED reaches a face neighbour's
+// Two-ring face adjacency, blocked N_DOF_PER_CELL square. This must be a SUPERSET of the
+// true Jacobian pattern: too small silently corrupts an FD-coloured Jacobian, too large
+// only costs extra colors. Two rings is enough because every dependence path is at most
+// that long -- the nonorthogonal cross-diffusion in M_*_FIXED reaches a face neighbour's
 // neighbours, and so does F_f through the Green-Gauss grad_p stencil.
 void buildJacobianPattern(FluentTwoDMesh * p_mesh, Mat J)
 {
@@ -383,6 +416,14 @@ void runNewtonSolver(NewtonSolverConfig & cfg)
   FluentTwoDMesh * p_mesh = cfg.p_mesh;
   std::vector<FluentTriCell> & cell_set = p_mesh->getCellSet();
   long int n_Cell = (long int)cell_set.size();
+
+  // Must come before n_dof, the Jacobian pattern, the block size, and every packing loop.
+  SOLVE_T = resolveSolveT() ? PETSC_TRUE : PETSC_FALSE;
+  N_DOF_PER_CELL = SOLVE_T ? 4 : 3;
+  std::cout << "Newton: " << (int)N_DOF_PER_CELL << " DOF per cell -- "
+            << (SOLVE_T ? "(u,v,p,T)" : "(u,v,p), temperature is not an unknown")
+            << std::endl;
+
   PetscInt n_dof = (PetscInt)(N_DOF_PER_CELL * n_Cell);
 
   NewtonCtx nc;
@@ -437,11 +478,13 @@ void runNewtonSolver(NewtonSolverConfig & cfg)
   VecDuplicate(X, &R);
 
   Mat J;
-  // Two rings of a triangle is at most 1 + 3 + 3*2 = 10 cells, so 40 columns per row;
-  // 64 leaves headroom for irregular connectivity without a reallocation.
+  // Two rings of a triangle is at most 1 + 3 + 3*2 = 10 cells, so 40 columns per row at
+  // 4 DOF (30 at 3); 64 leaves headroom for irregular connectivity without a reallocation.
   MatCreateSeqAIJ(PETSC_COMM_SELF, n_dof, n_dof, 64, NULL, &J);
-  // Lets PCFIELDSPLIT recover the four fields from the interlaced layout, so a
-  // Schur-complement split can be driven entirely from the command line.
+  // Lets PCFIELDSPLIT recover the individual fields from the interlaced layout, so a
+  // Schur-complement split can be driven entirely from the command line. NOTE this is
+  // what -pc_fieldsplit_*_fields indices are relative to: dropping T renumbers nothing
+  // (u,v,p keep 0,1,2) but field 3 ceases to exist, so an input file asking for it errors.
   MatSetBlockSize(J, N_DOF_PER_CELL);
   MatSetOption(J, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE);
   buildJacobianPattern(p_mesh, J);
@@ -527,20 +570,22 @@ void runNewtonSolver(NewtonSolverConfig & cfg)
 
     // Initial guess: the previous time level.
     {
-      const PetscScalar * uu, * vv, * pp, * tt;
+      const PetscScalar * uu, * vv, * pp, * tt = NULL;
       PetscScalar * xx;
       VecGetArrayRead(cfg.u, &uu); VecGetArrayRead(cfg.v, &vv);
-      VecGetArrayRead(cfg.p, &pp); VecGetArrayRead(cfg.T, &tt);
+      VecGetArrayRead(cfg.p, &pp);
+      if (SOLVE_T) VecGetArrayRead(cfg.T, &tt);
       VecGetArray(X, &xx);
       for (long int i = 0; i < n_Cell; i++)
       {
         xx[N_DOF_PER_CELL*i + 0] = uu[i];
         xx[N_DOF_PER_CELL*i + 1] = vv[i];
         xx[N_DOF_PER_CELL*i + 2] = pp[i];
-        xx[N_DOF_PER_CELL*i + 3] = tt[i];
+        if (SOLVE_T) xx[N_DOF_PER_CELL*i + 3] = tt[i];
       }
       VecRestoreArrayRead(cfg.u, &uu); VecRestoreArrayRead(cfg.v, &vv);
-      VecRestoreArrayRead(cfg.p, &pp); VecRestoreArrayRead(cfg.T, &tt);
+      VecRestoreArrayRead(cfg.p, &pp);
+      if (SOLVE_T) VecRestoreArrayRead(cfg.T, &tt);
       VecRestoreArray(X, &xx);
     }
 
@@ -559,30 +604,38 @@ void runNewtonSolver(NewtonSolverConfig & cfg)
       exit(1);
     }
 
-    // Unpack the converged state.
+    // Unpack the converged state. When T is not an unknown cfg.T is left alone, so it
+    // holds T_init for all time -- which is exactly what it would have converged to, and
+    // what writeExodusStep() below needs: the Exodus variable table is declared with four
+    // zonal variables unconditionally (ExodusOutput.C), and input/check_newton_order.py
+    // reads T back out and fails the run if it is not identically zero.
     {
       const PetscScalar * xx;
-      PetscScalar * uu, * vv, * pp, * tt;
+      PetscScalar * uu, * vv, * pp, * tt = NULL;
       VecGetArrayRead(X, &xx);
       VecGetArray(cfg.u, &uu); VecGetArray(cfg.v, &vv);
-      VecGetArray(cfg.p, &pp); VecGetArray(cfg.T, &tt);
+      VecGetArray(cfg.p, &pp);
+      if (SOLVE_T) VecGetArray(cfg.T, &tt);
       for (long int i = 0; i < n_Cell; i++)
       {
         uu[i] = xx[N_DOF_PER_CELL*i + 0];
         vv[i] = xx[N_DOF_PER_CELL*i + 1];
         pp[i] = xx[N_DOF_PER_CELL*i + 2];
-        tt[i] = xx[N_DOF_PER_CELL*i + 3];
+        if (SOLVE_T) tt[i] = xx[N_DOF_PER_CELL*i + 3];
       }
       VecRestoreArrayRead(X, &xx);
       VecRestoreArray(cfg.u, &uu); VecRestoreArray(cfg.v, &vv);
-      VecRestoreArray(cfg.p, &pp); VecRestoreArray(cfg.T, &tt);
+      VecRestoreArray(cfg.p, &pp);
+      if (SOLVE_T) VecRestoreArray(cfg.T, &tt);
     }
 
     // Face flux at the converged state, for the stream function on the final step.
     evaluatePressureGradientValues(p_mesh, cfg.p, nc.grad_p_x, nc.grad_p_y, cfg.grad_p->data());
     computeFaceFluxes(p_mesh, cfg.u, cfg.v, cfg.p, nc.grad_p_x, nc.grad_p_y, nc.F_0f, cfg.F_face);
 
-    // Per-step change, same definition and same CSV columns as the segregated loop.
+    // Per-step change, same definition and same CSV columns as the segregated loop. The
+    // T column needs no special case when T is not an unknown: T_old was copied from an
+    // unchanged cfg.T, so the norm below is an exact 0, as it already is on these cases.
     PetscScalar error_norm_u, error_norm_v, error_norm_T;
     VecAXPY(nc.u_old, -1.0, cfg.u); VecNorm(nc.u_old, NORM_2, &error_norm_u);
     VecAXPY(nc.v_old, -1.0, cfg.v); VecNorm(nc.v_old, NORM_2, &error_norm_v);

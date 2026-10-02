@@ -15,6 +15,10 @@ Re = 100, 400, 1000, 3200.
   writes `u_mid.csv` / `v_mid.csv`.
 - `plot_lid_driven.py` — reads those CSVs plus `Ghia-u.csv`/`Ghia-v.csv` and
   produces `u_mid_comparison.png` / `v_mid_comparison.png`.
+- `plot_streamfunction.py` — labeled StreamFunction contour plot tracing the
+  cavity's vortices for one `cavity_Re<Re>_out.e` file. Which Re and contour
+  levels are plotted is hard-coded at the top of the script (edit
+  `EXODUS_FILE` / `OUT_PNG` / `LEVELS` to switch).
 
 ## Usage
 
@@ -22,4 +26,5 @@ Re = 100, 400, 1000, 3200.
 python3 run_Re_sweep.py
 python3 extract_lid_driven.py
 python3 plot_lid_driven.py
+python3 plot_streamfunction.py
 ```

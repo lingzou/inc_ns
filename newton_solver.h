@@ -22,6 +22,14 @@
  * the reason this matters (the segregated energy lag makes -buoyancy true only a
  * pseudo-transient) are in docs/newton_krylov_formulation.tex.
  *
+ * T is in the state only when something can move it -- "-buoyancy true", or a temperature
+ * B.C. On a case with neither, R_T is identically zero, so newton_solver.C drops the block
+ * and the state is X = (u,v,p), 3 DOF per cell. That changes the answer not at all and the
+ * cost appreciably: the FD-coloured Jacobian spends one residual evaluation per colour and
+ * the colour count follows the column count. "-newton_solve_T true/false" overrides the
+ * detection; note that -pc_fieldsplit_*_fields indices in the Schur inputs are written
+ * against whichever layout is in force.
+ *
  * The residual deliberately reuses the operators cxx_main.C/inc_problems.C already
  * assemble rather than re-deriving the discretization: diffusion (including the
  * nonorthogonal cross terms) and the time-derivative diagonal are linear and already
@@ -30,7 +38,7 @@
  *
  *     R_u = M_USTAR(F_f(X)) * u - b_u(F_f(X))
  *     R_v = M_VSTAR(F_f(X)) * v - b_v(F_f(X), T)      // b_v carries the buoyancy source
- *     R_T = M_T(F_f(X))     * T - b_T(F_f(X))
+ *     R_T = M_T(F_f(X))     * T - b_T(F_f(X))      // omitted when T is not an unknown
  *     R_p = (1/dt) * sum_f F_f(X)                      // discrete continuity
  *
  * with F_f evaluated at the current iterate instead of a lagged one. Because both paths
