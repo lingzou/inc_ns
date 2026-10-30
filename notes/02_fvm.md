@@ -19,16 +19,11 @@ better consistency.
 For an incompressible, Newtonian fluid of constant density $\rho$, dynamic viscosity $\mu$,
 the continuity and momentum equations are:
 
-$$
-\nabla \cdot \mathbf{u} = 0,
-$$
+$$ \nabla \cdot \mathbf{u} = 0, $$
 
 and
 
-$$
-\frac{\partial \rho \mathbf{u}}{\partial t} + \nabla \cdot (\rho \mathbf{u} \otimes \mathbf{u})
-+ \nabla p - \mu \nabla^2 \mathbf{u} = 0,
-$$
+$$ \frac{\partial \rho \mathbf{u}}{\partial t} + \nabla \cdot (\rho \mathbf{u} \otimes \mathbf{u}) + \nabla p - \mu \nabla^2 \mathbf{u} = 0, $$
 
 respectively.
 In the equations above, $\mathbf{u}$ is the fluid velocity vector with
@@ -44,24 +39,16 @@ The governing equations in the integral form can be expressed as:
 
 Continuity equation:
 
-$$
-\int_{\Delta S} \rho \mathbf{u} \cdot \mathbf{dS} = 0
-$$
+$$ \int_{\Delta S} \rho \mathbf{u} \cdot \mathbf{dS} = 0 $$
 
 General transport equation:
 
-$$
-\frac{\partial}{\partial t} \int_{\Delta V} \rho \phi dV
-+ \int_{\Delta S} \left(\rho \mathbf{u} \phi - \Gamma_\phi \nabla \phi \right) \cdot \mathbf{dS}
-= S_{\phi}.
-$$
+$$ \frac{\partial}{\partial t} \int_{\Delta V} \rho \phi dV + \int_{\Delta S} \left(\rho \mathbf{u} \phi - \Gamma_\phi \nabla \phi \right) \cdot \mathbf{dS} = S_{\phi}. $$
 
 For the momentum equation, using the general transport equation form, $\phi = u$ or $v$ and $\Gamma = \mu$,
 and the source term on the right side of equation (general transport equation) is replaced by
 
-$$
--\int_{\Delta V} (\nabla p) \cdot \mathbf{n}_i dV,
-$$
+$$ -\int_{\Delta V} (\nabla p) \cdot \mathbf{n}_i dV, $$
 
 where $\mathbf{n}_i$ is the unit vector in the direction of the velocity component, $u_i$.
 
@@ -86,21 +73,14 @@ which borders with three neighboring (nb) cells respectively, as depicted in Fig
 
 In discretized form, the continuity equation for control volume (C0) is
 
-$$
-\sum\limits_{f}^{} F_f^{n+1} = 0.
-$$
+$$ \sum\limits_{f}^{} F_f^{n+1} = 0. $$
 
 in which, $F_f^{n+1}$ is the mass flux leaving from volume (C0) at cell face $f$
 and will be discussed later.
 
 The general transport equation, in discretized form, is given as
 
-$$
-\rho \Delta V_{C0} \frac{\phi_{C0}^{n+1} - \phi_{C0}^{n}}{\Delta t}
-+ \sum\limits_{f}^{} (F \phi)_f^{n+1}
-+ \sum\limits_{f}^{} (F_{d, \phi})_f^{n+1}
-= (S_{\phi})_{C0}^{n+1}.
-$$
+$$ \rho \Delta V_{C0} \frac{\phi_{C0}^{n+1} - \phi_{C0}^{n}}{\Delta t} + \sum\limits_{f}^{} (F \phi)_f^{n+1} + \sum\limits_{f}^{} (F_{d, \phi})_f^{n+1} = (S_{\phi})_{C0}^{n+1}. $$
 
 in which, $(F \phi)_f^{n+1}$ is the convection term of $\phi$ (that leaves from control volume (C0)),
 and $(F_{d, \phi})_f^{n+1}$ is the diffusion term of $\phi$ (that leaves from control volume (C0)),
@@ -113,12 +93,7 @@ we used slightly different notations for those term for better clarity.
 
 Following the general transport equation discretized form, the momentum equation is
 
-$$
-\rho \Delta V_{C0} \frac{\mathbf{u}_{C0}^{n+1} - \mathbf{u}_{C0}^{n}}{\Delta t}
-+ \sum\limits_{f}^{} (F \mathbf{u})_f^{n+1}
-+ \sum\limits_{f}^{} (F_{d, \mathbf{u}})_f^{n+1}
-= (\nabla p)_{C0}^{n+1} \Delta V_{C0}.
-$$
+$$ \rho \Delta V_{C0} \frac{\mathbf{u}_{C0}^{n+1} - \mathbf{u}_{C0}^{n}}{\Delta t} + \sum\limits_{f}^{} (F \mathbf{u})_f^{n+1} + \sum\limits_{f}^{} (F_{d, \mathbf{u}})_f^{n+1} = (\nabla p)_{C0}^{n+1} \Delta V_{C0}. $$
 
 ### 2.2.1 Convection term
 
@@ -126,19 +101,13 @@ Following DEB08, we use a weighted average of the upwind (FOU) and central diffe
 for the convection term.
 For a face $f$, the convection flux of $\phi$, $(F \phi)_f$, is calculated as
 
-$$
-(F \phi)_f = \gamma (F \phi)_f^{CDS} + (1 - \gamma) (F \phi)_f^{FOU}, \qquad 0 \leq \gamma \leq 1,
-$$
+$$ (F \phi)_f = \gamma (F \phi)_f^{CDS} + (1 - \gamma) (F \phi)_f^{FOU}, \qquad 0 \leq \gamma \leq 1, $$
 
 where
 
-$$
-(F \phi)_f^{FOU} = [[F_f, 0]] \phi_{C0} - [[-F_f, 0]] \phi_{nb},
-$$
+$$ (F \phi)_f^{FOU} = [[F_f, 0]] \phi_{C0} - [[-F_f, 0]] \phi_{nb}, $$
 
-$$
-(F \phi)_f^{CDS} = F_f \cdot \overline{\phi}_f,
-$$
+$$ (F \phi)_f^{CDS} = F_f \cdot \overline{\phi}_f, $$
 
 in which $\overline{\phi}_f$ is the face value using volume-weighted linear interpolation
 of the two neighboring cells (see below),
@@ -148,17 +117,13 @@ and $[[x, y]]$ denotes the maximum of the two arguments $x$ and $y$.
 are defined at cell centers, and therefore their face values are obtained
 using volume-weighted linear interpolation:
 
-$$
-\overline{\phi}_f = \frac{\Delta V_{nb} \phi_{C0} + \Delta V_{C0} \phi_{nb}}{\Delta V_{nb} + \Delta V_{C0}}.
-$$
+$$ \overline{\phi}_f = \frac{\Delta V_{nb} \phi_{C0} + \Delta V_{C0} \phi_{nb}}{\Delta V_{nb} + \Delta V_{C0}}. $$
 
 To be consistent with DEB08 notations[^1],
 and to avoid ambiguity when gradient on the surface will be discussed,
 we also write this volume-weighted linear interpolation as:
 
-$$
-(\overline{\phi_{C0}, \phi_{nb}}) \equiv \overline{\phi}_f.
-$$
+$$ (\overline{\phi_{C0}, \phi_{nb}}) \equiv \overline{\phi}_f. $$
 
 [^1]: Here we use $\overline{\phi}_f$ for the face interpolation value, while DEB08 uses $\phi_f$.
     We believe that $\overline{\phi}_f$ is a better choice to make the document clearer.
@@ -170,21 +135,13 @@ e.g., the pressure gradient term, $(\nabla p)_{C0}$, appeared in the momentum eq
 Assuming that the gradient is constant within a cell, the gradient can be approximated
 using the Green-Gauss Theorem, i.e.,
 
-$$
-(\nabla \phi)_{C0} = \frac{1}{\Delta V_{C0}} \sum\limits_f^{} \overline{\phi}_f \Delta \mathbf{S}_f
-$$
+$$ (\nabla \phi)_{C0} = \frac{1}{\Delta V_{C0}} \sum\limits_f^{} \overline{\phi}_f \Delta \mathbf{S}_f $$
 
 in which, $\overline{\phi}_f$ is the face value as defined in the face interpolation above,
 and $\Delta \mathbf{S}$ is the surface area vector, see figure 2.1 (b).
 It is noted that the cell-centered gradient term has a four-cell stencil, such that
 
-$$
-(\nabla \phi)_{C0} =
-\begin{bmatrix}
-\sum c_i \phi_i \\
-\sum d_i \phi_i
-\end{bmatrix},
-$$
+$$ (\nabla \phi)_{C0} = \begin{bmatrix} \sum c_i \phi_i \\ \sum d_i \phi_i \end{bmatrix}, $$
 
 for $i = \{C0, nb1, nb2, nb3\}$, and $c_i$ and $d_i$ are constant values which only depend on
 the mesh, i.e., cell volumes, face areas, etc.
@@ -193,9 +150,7 @@ the mesh, i.e., cell volumes, face areas, etc.
 
 The diffusion flux through a cell face $f$ (leaving cell (C0)) is
 
-$$
-(F_{d, \phi})_f = -\Gamma_{\phi} (\nabla \phi)_f \cdot \Delta \mathbf{S}_f.
-$$
+$$ (F_{d, \phi})_f = -\Gamma_{\phi} (\nabla \phi)_f \cdot \Delta \mathbf{S}_f. $$
 
 It is noted that in the equation above, $(\nabla \phi)_f$ is NOT the face interpolation value,
 $\overline{(\nabla \phi)}_f$ in the face interpolation above.
@@ -203,13 +158,7 @@ Instead, $(\nabla \phi)_f$ is the local gradient `sensed' on the surface.
 This is the key to the Rhie-Chow style momentum interpolation as will be discussed later.
 Following DEB08's formulation that considers cross diffusion effect, this term is determined as:
 
-$$
-\begin{aligned}
-(\nabla \phi)_f \cdot \Delta \mathbf{S}_f &= A_f (\nabla \phi)_f \cdot \mathbf{n}_f \\
-&= A_f (\nabla \phi)_f \cdot (\mathbf{n}_1 + \mathbf{n}_2) \\
-&= A_f \left[(\nabla \phi)_f \cdot \mathbf{n}_1 + (\nabla \phi)_f \cdot \mathbf{n}_2\right]
-\end{aligned}
-$$
+$$ \begin{aligned} (\nabla \phi)_f \cdot \Delta \mathbf{S}_f &= A_f (\nabla \phi)_f \cdot \mathbf{n}_f \\ &= A_f (\nabla \phi)_f \cdot (\mathbf{n}_1 + \mathbf{n}_2) \\ &= A_f \left[(\nabla \phi)_f \cdot \mathbf{n}_1 + (\nabla \phi)_f \cdot \mathbf{n}_2\right] \end{aligned} $$
 
 in which, the first term on the right-hand-side is the normal diffusion term,
 which can be approximated using the compact two-point scheme;
@@ -217,10 +166,7 @@ and the second term is the so-called `cross diffusion'as non-orthogonal correcti
 For the second term, $(\nabla \phi)_f$ is approximated by the face interpolation value $\overline{(\nabla \phi)}_f$.
 Using the two approximations, the diffusion term can be expressed as,
 
-$$
-(\nabla \phi)_f \cdot \Delta \mathbf{S}_f
-= A_f \left[\frac{\phi_{nb} - \phi_{C0}}{\Delta X_f} + \overline{(\nabla \phi)}_f \cdot \mathbf{n}_2\right].
-$$
+$$ (\nabla \phi)_f \cdot \Delta \mathbf{S}_f = A_f \left[\frac{\phi_{nb} - \phi_{C0}}{\Delta X_f} + \overline{(\nabla \phi)}_f \cdot \mathbf{n}_2\right]. $$
 
 The vectors $\mathbf{n}_f$, $\mathbf{n}_1$, and $\mathbf{n}_2$ are displayed in figure 2.1.
 More specifically, $\mathbf{n}_f$ is the outward unit normal of the face $f$,
@@ -235,18 +181,11 @@ discretized forms and all the terms are explained/discussed in the previous subs
 
 Discretized continuity equation:
 
-$$
-\sum\limits_{f}^{} F_f^{n+1} = 0.
-$$
+$$ \sum\limits_{f}^{} F_f^{n+1} = 0. $$
 
 Discretized momentum equation:
 
-$$
-\rho \Delta V_{C0} \frac{\mathbf{u}_{C0}^{n+1} - \mathbf{u}_{C0}^{n}}{\Delta t}
-+ \sum\limits_{f}^{} (F \mathbf{u})_f^{n+1}
-+ \sum\limits_{f}^{} (F_{d, \mathbf{u}})_f^{n+1}
-= (\nabla p)_{C0}^{n+1} \Delta V_{C0}.
-$$
+$$ \rho \Delta V_{C0} \frac{\mathbf{u}_{C0}^{n+1} - \mathbf{u}_{C0}^{n}}{\Delta t} + \sum\limits_{f}^{} (F \mathbf{u})_f^{n+1} + \sum\limits_{f}^{} (F_{d, \mathbf{u}})_f^{n+1} = (\nabla p)_{C0}^{n+1} \Delta V_{C0}. $$
 
 Because of the strong coupling between the two equations,
 segregated (and iterative) solvers are most commonly used in solving these equations.
@@ -266,43 +205,32 @@ First, a `provisional velocity' (``mass velocity'' in DEB08) field is solved fro
 which drops the pressure gradient term, however, uses face mass flux from the previous iteration.
 More specifically,
 
-$$
-\rho \Delta V_{C0} \frac{\mathbf{u}_{C0}^{*} - \mathbf{u}_{C0}^{n}}{\Delta t}
-+ \sum\limits_{f}^{} (F^{(i)} \mathbf{u}^{*})_f
-+ \sum\limits_{f}^{} (F_{d, \mathbf{u}})_f^{*}
-= 0.
-$$
+$$ \rho \Delta V_{C0} \frac{\mathbf{u}_{C0}^{\ast} - \mathbf{u}_{C0}^{n}}{\Delta t} + \sum\limits_{f}^{} (F^{(i)} \mathbf{u}^{\ast})_f + \sum\limits_{f}^{} (F_{d, \mathbf{u}})_f^{\ast} = 0. $$
 
-in which, the term $(F^{(i)} \mathbf{u})_f^{*}$ means that the convection term is evaluated
-using face mass flux (to be defined) from the previous iteration, $F_f^{*, (i)}$,
+in which, the term $(F^{(i)} \mathbf{u})_f^{\ast}$ means that the convection term is evaluated
+using face mass flux (to be defined) from the previous iteration, $F_f^{\ast, (i)}$,
 in which the additional superscript $(i)$ indicates values from the previous iteration,
-and therefore the convection term is linear to $\mathbf{u}^{*}$.
-The diffusion term operates on the current $\mathbf{u}^{*}$ field, which is also linear.
+and therefore the convection term is linear to $\mathbf{u}^{\ast}$.
+The diffusion term operates on the current $\mathbf{u}^{\ast}$ field, which is also linear.
 Clearly, the momentum equation for the provisional velocity field is a linear equation.
 
 **Pressure correction.** As discussed, the provisional velocity field in general will not satisfy the continuity equation.
-In particular, if we construct a ``provisional face mass flux'', $F_{0f}^{*}$, using the provisional velocity field, i.e.,
+In particular, if we construct a ``provisional face mass flux'', $F_{0f}^{\ast}$, using the provisional velocity field, i.e.,
 
-$$
-F_{0f}^{*} = \rho (\overline{\mathbf{u}_{C0}^{*}, \mathbf{u}_{nb}^{*}}) \cdot \Delta \mathbf{S},
-$$
+$$ F_{0f}^{\ast} = \rho (\overline{\mathbf{u}_{C0}^{\ast}, \mathbf{u}_{nb}^{\ast}}) \cdot \Delta \mathbf{S}, $$
 
 we expect that,
 
-$$
-\sum\limits_{f}^{} F_{0f}^{*} \neq 0,
-$$
+$$ \sum\limits_{f}^{} F_{0f}^{\ast} \neq 0, $$
 
-knowing that $\mathbf{u}^{*}$ is the solution to the momentum equation without the pressure gradient,
+knowing that $\mathbf{u}^{\ast}$ is the solution to the momentum equation without the pressure gradient,
 while the correct divergence-free face mass flux, $F_f^{n+1}$, considers the pressure gradient.
-Clearly, the difference between $F_f^{n+1}$ and $F_{0f}^{*}$ is due to the missing pressure gradient,
+Clearly, the difference between $F_f^{n+1}$ and $F_{0f}^{\ast}$ is due to the missing pressure gradient,
 and most commonly, the difference is approximated as proportional to the missing pressure gradient,
-e.g., $F_f^{n+1} - F_{0f}^{*} \sim d (\nabla p)_f$, in which the coefficient $d$ depends on the exact discretization.
+e.g., $F_f^{n+1} - F_{0f}^{\ast} \sim d (\nabla p)_f$, in which the coefficient $d$ depends on the exact discretization.
 In particular, DEB08 uses the following momentum interpolation:
 
-$$
-F_f^{n+1} = F_{0f}^{*} - \Delta t (\nabla p^{n+1})_f \cdot \Delta \mathbf{S},
-$$
+$$ F_f^{n+1} = F_{0f}^{\ast} - \Delta t (\nabla p^{n+1})_f \cdot \Delta \mathbf{S}, $$
 
 citing the Rhie-Chow scheme,
 in which $(\nabla p^{n+1})_f$ is the face gradient value as discussed in section [2.2.3](#223-diffusion-term),
@@ -310,11 +238,9 @@ equation (diffusion flux explicit form), NOT the face interpolation value as def
 The pressure correction equation can be obtained by substituting equation (face mass flux difference)
 into the continuity equation (discretized continuity equation),
 
-$$
-\Delta t \sum\limits_f^{} \left( (\nabla p^{*})_f \cdot \Delta \mathbf{S} \right) = \sum\limits_f^{} F_{0f}^{*}.
-$$
+$$ \Delta t \sum\limits_f^{} \left( (\nabla p^{\ast})_f \cdot \Delta \mathbf{S} \right) = \sum\limits_f^{} F_{0f}^{\ast}. $$
 
-in which, $(\nabla p^{*})_f \cdot \Delta \mathbf{S}$ is the ``diffusion term''
+in which, $(\nabla p^{\ast})_f \cdot \Delta \mathbf{S}$ is the ``diffusion term''
 as described in section [2.2.3](#223-diffusion-term),
 therefore, the pressure correction equation is often referred to as the ``pressure Poisson equation.''
 It is noted that the superscript $n+1$ for pressure is repaced by $*$ as pressure filed will be updated iteratively,
@@ -325,12 +251,10 @@ and the coefficients of the linear system are constant values which only depend 
 
 **Corrected face mass flux.** After the provisional velocities and corrected pressure field, the corrected face mass flux
 can now be obtained re-using equation (face mass flux difference).
-We change the superscript from $n+1$ to $*$ to indicate that it still needs iterations
+We change the superscript from $n+1$ to $\ast$ to indicate that it still needs iterations
 before it can be called the final corrected value:
 
-$$
-F_f^{*} = F_{0f}^{*} - \Delta t (\nabla p^{*})_f \cdot \Delta \mathbf{S},
-$$
+$$ F_f^{\ast} = F_{0f}^{\ast} - \Delta t (\nabla p^{\ast})_f \cdot \Delta \mathbf{S}, $$
 
 During the segregated iterative solving, this is the face mass flux value used
 in the provisional momentum equation.
@@ -339,37 +263,23 @@ in the provisional momentum equation.
 Following DEB08, the overall solution procedure can be summarized in the following steps:
 
 1. Put $F_f^{(i)} = F_f^{n}$ as first guess using previous time step value.
-2. Solve the linear provisional velocity equations for $\mathbf{u}_{C0}^{*}$:
+2. Solve the linear provisional velocity equations for $\mathbf{u}_{C0}^{\ast}$:
 
-   $$
-   \rho \Delta V_{C0} \frac{\mathbf{u}_{C0}^{*} - \mathbf{u}_{C0}^{n}}{\Delta t}
-   + \sum\limits_{f}^{} (F^{(i)} \mathbf{u}^{*})_f
-   + \sum\limits_{f}^{} (F_{d, \mathbf{u}})_f^{*}
-   = 0.
-   $$
+   $$ \rho \Delta V_{C0} \frac{\mathbf{u}_{C0}^{\ast} - \mathbf{u}_{C0}^{n}}{\Delta t} + \sum\limits_{f}^{} (F^{(i)} \mathbf{u}^{\ast})_f + \sum\limits_{f}^{} (F_{d, \mathbf{u}})_f^{\ast} = 0. $$
 
-3. Solve the linear pressure correction ``Poisson'' equation for $p_{C0}^{*}$
+3. Solve the linear pressure correction ``Poisson'' equation for $p_{C0}^{\ast}$
 
-   $$
-   \Delta t \sum\limits_f^{} \left( (\nabla p^{*})_f \cdot \Delta \mathbf{S} \right) = \sum\limits_f^{} F_{0f}^{*}.
-   $$
+   $$ \Delta t \sum\limits_f^{} \left( (\nabla p^{\ast})_f \cdot \Delta \mathbf{S} \right) = \sum\limits_f^{} F_{0f}^{\ast}. $$
 
-4. Update face mass flux $F_f^{*}$ using
+4. Update face mass flux $F_f^{\ast}$ using
 
-   $$
-   F_f^{*} = F_{0f}^{*} - \Delta t (\nabla p^{*})_f \cdot \Delta \mathbf{S},
-   $$
+   $$ F_f^{\ast} = F_{0f}^{\ast} - \Delta t (\nabla p^{\ast})_f \cdot \Delta \mathbf{S}, $$
 
-5. Repeat steps 2, 3, and 4 until $F_f^{*}$ converges.
-6. Put $F_f^{n+1} = F_f^{*}$ and $p^{n+1} = p^{*}$, which are the converged face mass flux and cell-centered pressure.
+5. Repeat steps 2, 3, and 4 until $F_f^{\ast}$ converges.
+6. Put $F_f^{n+1} = F_f^{\ast}$ and $p^{n+1} = p^{\ast}$, which are the converged face mass flux and cell-centered pressure.
 7. Solve the true momentum equation for $\mathbf{u}_{C0}^{n+1}$ (now a linear equation)
 
-   $$
-   \rho \Delta V_{C0} \frac{\mathbf{u}_{C0}^{n+1} - \mathbf{u}_{C0}^{n}}{\Delta t}
-   + \sum\limits_{f}^{} (F \mathbf{u})_f^{n+1}
-   + \sum\limits_{f}^{} (F_{d, \mathbf{u}})_f^{n+1}
-   = (\nabla p)_{C0}^{n+1} \Delta V_{C0}.
-   $$
+   $$ \rho \Delta V_{C0} \frac{\mathbf{u}_{C0}^{n+1} - \mathbf{u}_{C0}^{n}}{\Delta t} + \sum\limits_{f}^{} (F \mathbf{u})_f^{n+1} + \sum\limits_{f}^{} (F_{d, \mathbf{u}})_f^{n+1} = (\nabla p)_{C0}^{n+1} \Delta V_{C0}. $$
 
 8. End of time step $(n+1)$.
 
@@ -378,9 +288,7 @@ Following DEB08, the overall solution procedure can be summarized in the followi
 **Symbolic form.** Now, let's revisit the discretized equations in symbolic forms.
 For the complete momentum equation, we write
 
-$$
-A \mathbf{u} = G p
-$$
+$$ A \mathbf{u} = G p $$
 
 in which, $A = A(F_f) = M + C(F_f) + D_{\mu}$,
 and $M = \frac{\rho \Delta V}{\Delta t} I$, which is linear;
@@ -391,17 +299,13 @@ and $G = \Delta V \nabla$ is the cell-centered gradient operator, which is also 
 The key to the DEB08 scheme is to first solve the linearized modified momentum equation,
 which can be expressed as:
 
-$$
-\left[ M + C(F_f^{(i)}) + D_{\mu} \right] \mathbf{u}^{*} = 0
-$$
+$$ \left[ M + C(F_f^{(i)}) + D_{\mu} \right] \mathbf{u}^{\ast} = 0 $$
 
 which is a linear equation since $C(F_f^{(i)})$ is now linear using previous iteration values.
 
 The next step is to solve the pressure correction equation, in symbolic form,
 
-$$
--\Delta t D p = \text{Div} (F_{0f}^{*})
-$$
+$$ -\Delta t D p = \text{Div} (F_{0f}^{\ast}) $$
 
 in which $D$ is the diffusion operator, a discrete analogue of $-\nabla^2$, and $D = D_\mu|_{\mu \to 1}$.
 As discussed earlier, $D$ is a (max)10-cell stencil linear operator,
@@ -409,32 +313,21 @@ which will be a key in providing physics-based preconditioning scheme for the mo
 
 As the DEB08 scheme converges, it effectively solves the two equivalent nonlinear equations:
 
-$$
-\begin{cases}
-\text{Div} (F_f) = 0 \\
-A \mathbf{u}^{*} = 0
-\end{cases}
-$$
+$$ \begin{cases} \text{Div} (F_f) = 0 \\ A \mathbf{u}^{\ast} = 0 \end{cases} $$
 
-with $F_f = F_f(\mathbf{u}^{*}, p)$.
+with $F_f = F_f(\mathbf{u}^{\ast}, p)$.
 
 **What DEB08 momentum interpolation implies.** Comparing the complete momentum equation and the modified momentum equation in (DEB08 symbolic form), it is easy to see:
 
-$$
-A(\mathbf{u} - \mathbf{u}^{*}) = Gp
-$$
+$$ A(\mathbf{u} - \mathbf{u}^{\ast}) = Gp $$
 
 and
 
-$$
-\mathbf{u} - \mathbf{u}^{*} = A^{-1}Gp
-$$
+$$ \mathbf{u} - \mathbf{u}^{\ast} = A^{-1}Gp $$
 
 Compared with the DEB08 momentum interpolation equation (face mass flux difference), it is clear to see that DEB08 takes:
 
-$$
-A^{-1} \approx M^{-1} = \frac{\Delta t}{\rho \Delta V} I.
-$$
+$$ A^{-1} \approx M^{-1} = \frac{\Delta t}{\rho \Delta V} I. $$
 
 Physically, $A^{-1}Gp$ is the velocity response to a pressure perturbation through the *full*
 momentum balance, including transient, convection, and diffusion together;
@@ -461,29 +354,13 @@ In this section, we discuss the fully implicit monolithic formulation,
 and Newton's method in solving the fully implicit and coupled system.
 In this case, we would like to solve the unknown vector,
 
-$$
-\mathbf{U} =
-\begin{pmatrix}
-\mathbf u\\
-p
-\end{pmatrix}
-=
-\begin{pmatrix}
-u\\v\\p
-\end{pmatrix}
-\in \mathbb{R}^{3N},
-$$
+$$ \mathbf{U} = \begin{pmatrix} \mathbf u\\ p \end{pmatrix} = \begin{pmatrix} u\\v\\p \end{pmatrix} \in \mathbb{R}^{3N}, $$
 
 in a spatially discretized domain with $N$ triangle meshes,
 for continuity and mass equations (discretized continuity equation) and (discretized momentum equation).
 In symbolic form, we write:
 
-$$
-\begin{cases}
-\text{Div} (F_f) = 0 \\
-A \mathbf{u} = G p
-\end{cases}
-$$
+$$ \begin{cases} \text{Div} (F_f) = 0 \\ A \mathbf{u} = G p \end{cases} $$
 
 with $F_f$ not defined yet.
 It is noted that $F_f$ here is not the same as in the DEB08 formulation,
@@ -494,19 +371,11 @@ In residual form, we write:
 
 Discretized continuity equation residual form:
 
-$$
-R_c = \frac{1}{\Delta t}\sum\limits_{f}^{} F_f.
-$$
+$$ R_c = \frac{1}{\Delta t}\sum\limits_{f}^{} F_f. $$
 
 Discretized momentum equation residual form:
 
-$$
-\mathbf{R}_m = \begin{pmatrix} R_u\\ R_v\end{pmatrix}
-= \rho \Delta V_{C0} \frac{\mathbf{u}_{C0} - \mathbf{u}_{C0}^{n}}{\Delta t}
-+ \sum\limits_{f}^{} (F \mathbf{u})_f
-+ \sum\limits_{f}^{} (F_{d, \mathbf{u}})_f
-- (\nabla p)_{C0} \Delta V_{C0}.
-$$
+$$ \mathbf{R}_m = \begin{pmatrix} R_u\\ R_v\end{pmatrix} = \rho \Delta V_{C0} \frac{\mathbf{u}_{C0} - \mathbf{u}_{C0}^{n}}{\Delta t} + \sum\limits_{f}^{} (F \mathbf{u})_f + \sum\limits_{f}^{} (F_{d, \mathbf{u}})_f - (\nabla p)_{C0} \Delta V_{C0}. $$
 
 One would immediately notice that the $1/\Delta t$ scaling in front for the continuity equation.
 Note that it does not change any physics, still solving the same continuity equation.
@@ -520,41 +389,22 @@ of face mass flux can be obtained following similar approaches used in DEB08.
 
 First, the most straightforward but naive formulation is:
 
-$$
-F_f = F_f(\mathbf{u}) = \rho (\overline{\mathbf{u}_{C0}, \mathbf{u}_{nb}}) \cdot \Delta \mathbf{S},
-$$
+$$ F_f = F_f(\mathbf{u}) = \rho (\overline{\mathbf{u}_{C0}, \mathbf{u}_{nb}}) \cdot \Delta \mathbf{S}, $$
 
 but this is a well understood trap that leads to the checkerboard pressure oscillations.
 As a well-understood fact, a correct Rhie-Chow type of face mass flux needs the correct pressure gradient terms.
 Recall that the momentum interpolation equation used in DEB08 states that:
 
-$$
-F_f^{n+1} = \rho (\overline{\mathbf{u}_{C0}^{*}, \mathbf{u}_{nb}^{*}}) \cdot \Delta \mathbf{S}
-            - \Delta t (\nabla p^{n+1})_f \cdot \Delta \mathbf{S},
-$$
+$$ F_f^{n+1} = \rho (\overline{\mathbf{u}_{C0}^{\ast}, \mathbf{u}_{nb}^{\ast}}) \cdot \Delta \mathbf{S} - \Delta t (\nabla p^{n+1})_f \cdot \Delta \mathbf{S}, $$
 
 Naturally, we extend the same interpolation in cell center for velocity, such that
 
-$$
-\mathbf{u}_{C0} = \mathbf{u}_{C0}^{*} - \frac{\Delta t}{\rho} (\nabla p)_{C0}.
-$$
+$$ \mathbf{u}_{C0} = \mathbf{u}_{C0}^{\ast} - \frac{\Delta t}{\rho} (\nabla p)_{C0}. $$
 
 Substituting equation (cell velocity difference) into (momentum interpolation equation),
 it can be obtained:
 
-$$
-\begin{aligned}
-F_f &= \rho \left(\overline{\mathbf{u}_{C0} + \frac{\Delta t}{\rho} (\nabla p)_{C0},
-                      \mathbf{u}_{nb} + \frac{\Delta t}{\rho} (\nabla p)_{nb}}
-            \right) \cdot \Delta \mathbf{S}
-            - \Delta t (\nabla p)_f \cdot \Delta \mathbf{S}, \\
-    &= \underbrace{\rho (\overline{\mathbf{u}_{C0}, \mathbf{u}_{nb}}) \cdot \Delta \mathbf{S}}_{(1)}
-        - \underbrace{\Delta t (\nabla p)_f \cdot \Delta \mathbf{S}}_{(2)}
-        + \underbrace{\Delta t \overline{(\nabla p)}_f \cdot \Delta \mathbf{S}}_{(3)} \\
-    &= \rho (\overline{\mathbf{u}_{C0}, \mathbf{u}_{nb}}) \cdot \Delta \mathbf{S}
-        - \Delta t \left[(\nabla p)_f - \overline{(\nabla p)}_f \right] \cdot \Delta \mathbf{S}.
-\end{aligned}
-$$
+$$ \begin{aligned} F_f &= \rho \left(\overline{\mathbf{u}_{C0} + \frac{\Delta t}{\rho} (\nabla p)_{C0}, \mathbf{u}_{nb} + \frac{\Delta t}{\rho} (\nabla p)_{nb}} \right) \cdot \Delta \mathbf{S} - \Delta t (\nabla p)_f \cdot \Delta \mathbf{S}, \\ &= \underbrace{\rho (\overline{\mathbf{u}_{C0}, \mathbf{u}_{nb}}) \cdot \Delta \mathbf{S}}_{(1)} - \underbrace{\Delta t (\nabla p)_f \cdot \Delta \mathbf{S}}_{(2)} + \underbrace{\Delta t \overline{(\nabla p)}_f \cdot \Delta \mathbf{S}}_{(3)} \\ &= \rho (\overline{\mathbf{u}_{C0}, \mathbf{u}_{nb}}) \cdot \Delta \mathbf{S} - \Delta t \left[(\nabla p)_f - \overline{(\nabla p)}_f \right] \cdot \Delta \mathbf{S}. \end{aligned} $$
 
 This is the classic Rhie-Chow type face mass flux for the monolithic formulation.
 The first term (1) is the `naive' formulation using neighboring cell velocities;
@@ -565,10 +415,7 @@ see definitions in section [2.2.2](#222-gradient-term) and section [2.2.1](#221-
 Terms (2) and (3) together, is the appropriate correction term, which brings the correct pressure information to the face flux.
 The two terms can be further manipulated such that
 
-$$
-F_f = \rho (\overline{\mathbf{u}_{C0}, \mathbf{u}_{nb}}) \cdot \Delta \mathbf{S}
-    - \Delta t A_f \left[ \frac{p_{nb} - p_{C0}}{\Delta X_f} - \overline{(\nabla p)}_f \cdot \mathbf{n}_1 \right].
-$$
+$$ F_f = \rho (\overline{\mathbf{u}_{C0}, \mathbf{u}_{nb}}) \cdot \Delta \mathbf{S} - \Delta t A_f \left[ \frac{p_{nb} - p_{C0}}{\Delta X_f} - \overline{(\nabla p)}_f \cdot \mathbf{n}_1 \right]. $$
 
 The correction term now has much clearer physics picture.
 It is the difference between the two pressure gradient interpolations on the face: a compact two-point pressure gradient,
@@ -582,26 +429,11 @@ who may have the best explanation to the Rhie-Chow scheme.
 
 Newton's method solves, at iteration k,
 
-$$
-J(\mathbf{U}^k) \delta \mathbf{U}^k = -R(\mathbf{U}^k),
-\qquad \mathbf{U}^{k+1} = \mathbf{U}^{k} + \delta \mathbf{U}^k,
-\qquad J = \frac{\partial R}{\partial \mathbf{U}}
-$$
+$$ J(\mathbf{U}^k) \delta \mathbf{U}^k = -R(\mathbf{U}^k), \qquad \mathbf{U}^{k+1} = \mathbf{U}^{k} + \delta \mathbf{U}^k, \qquad J = \frac{\partial R}{\partial \mathbf{U}} $$
 
 For the monolithic formulation, the Jacobian has the following structure:
 
-$$
-J =
-  \begin{pmatrix}
-  \frac{\partial \mathbf{R}_m}{\partial \mathbf{u}} & \frac{\partial \mathbf{R}_m}{\partial p}             \\
-  \frac{\partial R_c}{\partial \mathbf{u}} & \frac{\partial R_c}{\partial p}
-  \end{pmatrix}
-  =
-  \begin{pmatrix}
-  Q & G'             \\
-  \frac{\rho}{\Delta t} \text{Div} & L_{pp}
-  \end{pmatrix}
-$$
+$$ J = \begin{pmatrix} \frac{\partial \mathbf{R}_m}{\partial \mathbf{u}} & \frac{\partial \mathbf{R}_m}{\partial p}             \\ \frac{\partial R_c}{\partial \mathbf{u}} & \frac{\partial R_c}{\partial p} \end{pmatrix} = \begin{pmatrix} Q & G'             \\ \frac{\rho}{\Delta t} \text{Div} & L_{pp} \end{pmatrix} $$
 
 in which, $Q = A + \mathbf{u} \partial A/\partial \mathbf{u}$,
 $G' = G + g$ with $G$ the cell-centered gradient operator in matrix form,
@@ -616,15 +448,11 @@ and therefore, the structure of the Jacobian represents the saddle point problem
 It is noted that, the divergence of pressure correction term carries the same $\Delta t$ prefactor
 as the face mass flux it comes from, and that $\Delta t$ now cancels against the $1/\Delta t$ already in front of $R_c$,
 
-$$
-\frac{1}{\Delta t}\left[-\Delta t \text{Div} (\nabla p)_f + \Delta t \text{Div} \overline{(\nabla p)}_f\right] = D p + \frac{1}{\Delta V} \text{Div} \overline{G} p,
-$$
+$$ \frac{1}{\Delta t}\left[-\Delta t \text{Div} (\nabla p)_f + \Delta t \text{Div} \overline{(\nabla p)}_f\right] = D p + \frac{1}{\Delta V} \text{Div} \overline{G} p, $$
 
 and thus
 
-$$
-L_{pp} = D + \frac{1}{\Delta V} \text{Div} \overline{G},
-$$
+$$ L_{pp} = D + \frac{1}{\Delta V} \text{Div} \overline{G}, $$
 
 recall that $D = -\nabla^2$ and $G = \Delta V \nabla$.
 
@@ -636,32 +464,23 @@ same manipulation used throughout the saddle-point literature for Stokes and Nav
 Writing the Newton update as $\delta \mathbf{u}$ and $\delta p$,
 the two block rows of the Jacobian system read
 
-$$
-Q\,\delta \mathbf{u} + G'\,\delta p = r_u, \qquad
-\frac{\rho}{\Delta t}\text{Div}\,\delta \mathbf{u} + L_{pp}\,\delta p = r_c,
-$$
+$$ Q\,\delta \mathbf{u} + G'\,\delta p = r_u, \qquad \frac{\rho}{\Delta t}\text{Div}\,\delta \mathbf{u} + L_{pp}\,\delta p = r_c, $$
 
 with $r_u$ and $r_c$ the (negative) momentum and continuity residuals.
 Choosing a reasonable time step size, $Q$ is diagonally dominant with a positive diagonal and invertible,
 and the first equation can be solved for $\delta \mathbf{u}$:
 
-$$
-\delta \mathbf{u} = Q^{-1}\left(r_u - G\,\delta p\right)
-$$
+$$ \delta \mathbf{u} = Q^{-1}\left(r_u - G\,\delta p\right) $$
 
 It is noted that $G'$ has been approximated by $G$ with the trivial term $g$ dropped.
 Now, substituting the `barred' face interpolation value of $\delta \mathbf{u}$ into the second equation
 (the face interpolation value is used because the second equation acts on faces),
 
-$$
-\frac{\rho}{\Delta t} \text{Div} \left[ \overline{Q^{-1}}r_u - \overline{Q^{-1} G} \delta p \right] + L_{pp}\,\delta p = r_c.
-$$
+$$ \frac{\rho}{\Delta t} \text{Div} \left[ \overline{Q^{-1}}r_u - \overline{Q^{-1} G} \delta p \right] + L_{pp}\,\delta p = r_c. $$
 
 and then,
 
-$$
-\underbrace{\left[L_{pp} - \frac{\rho}{\Delta t} \text{Div} \overline{Q^{-1} G} \right]}_{S}\delta p = \text{RHS}.
-$$
+$$ \underbrace{\left[L_{pp} - \frac{\rho}{\Delta t} \text{Div} \overline{Q^{-1} G} \right]}_{S}\delta p = \text{RHS}. $$
 
 in which, $S = L_{pp} - \frac{\rho}{\Delta t} \text{Div} \overline{Q^{-1} G}$ is the pressure Schur complement.
 The question is, what is a cheap but still accurate approximation to it?
@@ -671,13 +490,7 @@ The momentum-interpolation analysis above showed that DEB08 approximates $A^{-1}
 argument $Q^{-1}$, with the diagonal $M^{-1} = \frac{\Delta t}{\rho \Delta V}I$.
 Substituting this surrogate into the Schur complement, and recall that $L_{pp} = D + \frac{1}{\Delta V} \text{Div} \overline{G}$,
 
-$$
-\begin{aligned}
-  \hat{S} &= L_{pp} - \frac{\rho}{\Delta t} \frac{\Delta t}{\rho \Delta V} \text{Div} \overline{G}\\
-          &= D + \frac{1}{\Delta V} \text{Div} \overline{G} - \frac{1}{\Delta V} \text{Div} \overline{G}\\
-          &= D.
-\end{aligned}
-$$
+$$ \begin{aligned} \hat{S} &= L_{pp} - \frac{\rho}{\Delta t} \frac{\Delta t}{\rho \Delta V} \text{Div} \overline{G}\\ &= D + \frac{1}{\Delta V} \text{Div} \overline{G} - \frac{1}{\Delta V} \text{Div} \overline{G}\\ &= D. \end{aligned} $$
 
 in which, $D$ is exactly the diffusion operator, $- \nabla^2$, see section [2.4](#24-additional-notes).
 In matrix form, it is the (max) 10-cell stencil matrix with all its entries being constant values,
@@ -696,13 +509,7 @@ and the momentum equation (discretized momentum equation) is unchanged.
 If buoyancy is active instead, under the Boussinesq approximation the momentum equation
 picks up a source term proportional to the temperature deviation from a reference value,
 
-$$
-\rho \Delta V_{C0} \frac{\mathbf{u}_{C0}^{n+1} - \mathbf{u}_{C0}^{n}}{\Delta t}
-+ \sum\limits_{f}^{} (F \mathbf{u})_f^{n+1}
-+ \sum\limits_{f}^{} (F_{d, \mathbf{u}})_f^{n+1}
-= (\nabla p)_{C0}^{n+1} \Delta V_{C0}
-+ \rho g \beta (T_{C0} - T_{\mathrm{ref}}) \Delta V_{C0}\, \hat{\mathbf{e}}_y,
-$$
+$$ \rho \Delta V_{C0} \frac{\mathbf{u}_{C0}^{n+1} - \mathbf{u}_{C0}^{n}}{\Delta t} + \sum\limits_{f}^{} (F \mathbf{u})_f^{n+1} + \sum\limits_{f}^{} (F_{d, \mathbf{u}})_f^{n+1} = (\nabla p)_{C0}^{n+1} \Delta V_{C0} + \rho g \beta (T_{C0} - T_{\mathrm{ref}}) \Delta V_{C0}\, \hat{\mathbf{e}}_y, $$
 
 so that $T$ now feeds back into $\mathbf{u}$ through the $y$-momentum equation,
 on top of $\mathbf{u}$ driving $T$ through convection as before, forming a two-way coupling.

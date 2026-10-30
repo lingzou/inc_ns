@@ -15,7 +15,7 @@ In the segregated algorithm the mass flux is built from the
 *provisional* velocity from the modified momentum equation (provisional momentum equation)
 without the pressure gradient, and only after the flux-correction loop
 has converged does the final re-solve (momentum equation) produce $u^{n+1}$.
-The converged segregated flux is therefore $F_f = \overline{(u^{*})}_f\cdot\Delta S_f - \Delta t(\nabla p)_f\cdot\Delta S_f$,
+The converged segregated flux is therefore $F_f = \overline{(u^{\ast})}_f\cdot\Delta S_f - \Delta t(\nabla p)_f\cdot\Delta S_f$,
 while the monolithic flux (Rhie-Chow momentum interpolation, section [2.5](02_fvm.md#25-fully-implicit-monolithic-formulation)) is the same
 expression written in terms of $u^{n+1}$, the velocity that actually solves the
 momentum equation.
