@@ -30,7 +30,7 @@ RA_NUMBERS = [1e3, 1e4, 1e5, 1e6]
 # de Vahl Davis (1983), "Natural convection of air in a square cavity: a bench
 # mark numerical solution" -- the reference values every later paper on this
 # case (including DEB08 Table 1) compares against.
-DE_VAHL_DAVIS_NU = {1e3: 1.118, 1e4: 2.243, 1e5: 4.519, 1e6: 8.799}
+DE_VAHL_DAVIS_NU = {1e3: 1.118, 1e4: 2.243, 1e5: 4.519, 1e6: 8.800}
 
 # DEB08's own Table 1
 DEB08_NU = {1e3: 1.160, 1e4: 2.247, 1e5: 4.613, 1e6: 9.106}

@@ -46,6 +46,19 @@
  * discrete problem and must agree to solver tolerance -- see runNewtonTests.sh.
  */
 
+// Per-boundary-face info needed for -force_zones drag/lift post-processing (Cf/Cp/Cd/Cl),
+// precomputed once in cxx_main.C exactly as the segregated loop's own (locally-scoped)
+// WallFaceInfo -- same face normal, same cell-centroid-to-wall distance -- and shared here
+// so both solver paths compute the coefficients identically. See cxx_main.C's FORCE_ENABLED
+// block for how n_hat and distance are derived.
+struct WallForceFaceInfo
+{
+  Face * face;
+  long int cell_id1;
+  Vec3d n_hat;
+  double distance;
+};
+
 struct NewtonSolverConfig
 {
   FluentTwoDMesh * p_mesh;
@@ -97,6 +110,17 @@ struct NewtonSolverConfig
   int output_interval;
   ExodusOutputContext * exoCtx;
   std::ofstream * convergence_file;
+
+  // Optional -force_zones drag/lift post-processing (see cxx_main.C's FORCE_ENABLED
+  // block). force_enabled false (the default -- NewtonSolverConfig is otherwise
+  // zero/empty-initialized by cxx_main.C) means wall_faces is left empty and no Cf/Cp/Cd/Cl
+  // columns are written, exactly like every existing -newton input file today. When true,
+  // Cf/Cp/Cd/Cl are computed after each step's SNES solve using the same formula as the
+  // segregated loop and appended to the convergence CSV, which must already have
+  // ",Cf,Cp,Cd,Cl" in its header -- cxx_main.C arranges this before dispatching to Newton.
+  bool force_enabled = false;
+  std::vector<WallForceFaceInfo> wall_faces;
+  double force_U_inf = 0.0, force_D_ref = 0.0, force_dir_x = 1.0, force_dir_y = 0.0;
 };
 
 // Runs the whole time loop. Output (Exodus records, the convergence CSV, the

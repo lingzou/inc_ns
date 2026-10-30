@@ -106,12 +106,28 @@ Optional top-level keys:
 -output_interval <n>          # write every n-th step to the Exodus file (default 1)
 -diff_t          <value>      # thermal diffusivity (default 0)
 -T_init          <value>      # uniform initial temperature (default 0)
+-u_init          <value>      # uniform initial u-velocity guess (default 1.0)
+-v_init          <value>      # uniform initial v-velocity guess (default 0.0)
 -buoyancy        <true|false> # Boussinesq buoyancy source in v-momentum (default false)
 -gamma           <0..1>       # convective blend factor (default 0.5) -- see below
 -newton          <true|false> # monolithic Newton-Krylov solver (default false)
 -force_zones     <z1,z2,...>  # track Cf/Cp/Cd/Cl on these wall zones (default: off)
 -nusselt_zones   <z1,z2,...>  # track the average Nusselt number on these wall zones (default: off)
 ```
+
+### `-u_init`/`-v_init`: overriding the initial guess
+
+Every run starts from a uniform `(u, v)` field set by `-u_init`/`-v_init`, defaulting to
+`(1.0, 0.0)` -- a historical choice that happens to match the lid-driven cavity's lid velocity,
+but otherwise has no special meaning and violates no-slip at every other wall regardless
+of problem type. For the segregated SIMPLE-style solver (`-newton false`, the default)
+this inconsistency is washed out over the first few iterations. Under `-newton true`,
+though, it is fed directly into the first Newton linear solve, and at low enough
+viscosity that mismatch can make the first solve fail outright before a single nonlinear
+iteration completes (`SNES diverged ... reason -3, 0 iterations`) -- seen on the
+lid-driven cavity's Re=3200 case (`-visc 0.0003125`) with the matrix-free Schur Newton
+options. Overriding to `-u_init 0.0 -v_init 0.0` (starting from rest) avoided it there;
+see `benchmark/lid_driven/run_Re_sweep.py`'s `NEWTON_INIT_OVERRIDES`.
 
 ### `-nusselt_zones`: Nusselt-number post-processing
 

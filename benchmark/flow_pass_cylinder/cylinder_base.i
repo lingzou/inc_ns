@@ -40,8 +40,8 @@
 -bc_7_type interior
 
 # Surface force monitors on the cylinder (zone 5): appends Cf, Cp, Cd, Cl
-# columns to the convergence CSV, computed each time step. Reference
+# columns to the convergence CSV, computed each time step (both -newton true
+# and the default segregated solver support this identically). Reference
 # velocity/direction are taken from zone 1's inlet B.C.; reference length
-# is zone 5's bounding-box size (~1.0, the cylinder diameter). Not
-# compatible with -newton true.
+# is zone 5's bounding-box size (~1.0, the cylinder diameter).
 -force_zones 5

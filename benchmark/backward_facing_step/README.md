@@ -14,10 +14,10 @@ viscosity).
 - `report_reattachment.py` — reads each `_out.e` file, detects the step
   location from the mesh, and computes the reattachment length Lr from the
   wall-adjacent u velocity sign change. Also checks the final u_L2_error
-  against `CONVERGED_TOL` and flags any case that hasn't converged.
-
-`Biswas.csv` holds reference reattachment lengths (Biswas et al.) for manual
-comparison against the printed table; it isn't read by either script.
+  against `CONVERGED_TOL` and flags any case that hasn't converged. For
+  converged cases, compares Lr against the reference values in `Biswas.csv`,
+  writing `comparison.csv` (Biswas, this work, absolute/percent error) and a
+  scatter plot `comparison.png`.
 
 ## Usage
 

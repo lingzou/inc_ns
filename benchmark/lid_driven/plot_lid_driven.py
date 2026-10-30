@@ -6,8 +6,22 @@ produced by extract_lid_driven.py, overlays them on the Ghia-u.csv / Ghia-v.csv
 reference tables, and produces two comparison plots (u along y, v along x),
 each shown on screen and saved as a 300 dpi PNG.
 
+It also reads the monolithic-Newton counterparts (u_mid_Re<Re>_newton.csv /
+v_mid_Re<Re>_newton.csv, from `extract_lid_driven.py --newton`) and produces two
+more plots overlaying the segregated (SIMPLE) and monolithic (Newton) profiles
+directly, one line style per solver, to check the two solvers agree.
+
+Finally, it reads u_mid_Re<Re>_t0.2[_newton].csv / v_mid_Re<Re>_t0.2[_newton].csv,
+a one-off early-transient snapshot (20 steps at dt=0.01 -> t=0.2 s, both solvers
+started from rest via -u_init 0 -v_init 0 for an apples-to-apples IC -- see
+cavity_Re<Re>_t0.2[_newton].i) and produces two more segregated-vs-monolithic
+plots at that fixed early time, rather than at steady state. These CSVs are not
+produced by extract_lid_driven.py; generate them the same way (plot_lines.py
+under pvpython) if regenerating from scratch.
+
 Usage:
-    python3 benchmark/lid_driven/extract_lid_driven.py   # first, to generate the CSVs
+    python3 benchmark/lid_driven/extract_lid_driven.py           # first, to generate the CSVs
+    python3 benchmark/lid_driven/extract_lid_driven.py --newton  # and the Newton CSVs
     python3 benchmark/lid_driven/plot_lid_driven.py
     python3 benchmark/lid_driven/plot_lid_driven.py --no-show
 """
@@ -17,6 +31,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
+from matplotlib.lines import Line2D
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -38,8 +53,9 @@ MUTED = "#898781"
 INK = "#0b0b0b"
 
 
-def sim_csv_paths(re):
-    return SCRIPT_DIR / f"u_mid_Re{re}.csv", SCRIPT_DIR / f"v_mid_Re{re}.csv"
+def sim_csv_paths(re, newton=False, t02=False):
+    suffix = ("_t0.2" if t02 else "") + ("_newton" if newton else "")
+    return SCRIPT_DIR / f"u_mid_Re{re}{suffix}.csv", SCRIPT_DIR / f"v_mid_Re{re}{suffix}.csv"
 
 
 def load_sim_profile(csv_path, pos_col, val_col):
@@ -137,6 +153,142 @@ def plot_v_mid(out_png, show):
         plt.show(block=False)
 
 
+# Solver variant encoding for the segregated-vs-monolithic comparison plots. Re
+# still owns color on the segregated line (identity, fixed order, matching every
+# other plot in this file). The Newton line breaks that rule on purpose: it's
+# drawn in one fixed, non-Re color and on top (higher zorder) so that where the
+# two solutions overlap exactly -- the expected result -- the dashed NEWTON_COLOR
+# line is visibly sitting on top of (and hiding) the solid Re-colored one, rather
+# than the two being indistinguishable.
+SOLVER_LINESTYLES = {
+    "segregated": "-",
+    "newton": "--",
+}
+NEWTON_COLOR = "#000000"
+SOLVER_CAPTION = "solid (color): segregated (SIMPLE)   dashed (black, drawn on top): monolithic (Newton)"
+
+
+def solver_comparison_legend_handles():
+    handles = [
+        Line2D([0], [0], color=COLORS[re], linewidth=2, linestyle=SOLVER_LINESTYLES["segregated"],
+               label=f"Re = {re}")
+        for re in REYNOLDS_NUMBERS
+    ]
+    handles.append(
+        Line2D([0], [0], color=NEWTON_COLOR, linewidth=2, linestyle=SOLVER_LINESTYLES["newton"],
+               label="Monolithic (Newton)")
+    )
+    return handles
+
+
+def plot_u_mid_solver_comparison(out_png, show):
+    fig, ax = plt.subplots(figsize=(6, 6))
+    for re in REYNOLDS_NUMBERS:
+        color = COLORS[re]
+        u_csv, _ = sim_csv_paths(re, newton=False)
+        y, u = load_sim_profile(u_csv, "Points:1", "vel:0")
+        ax.plot(u, y, color=color, linewidth=2, linestyle=SOLVER_LINESTYLES["segregated"], zorder=3)
+
+        u_csv_newton, _ = sim_csv_paths(re, newton=True)
+        y_n, u_n = load_sim_profile(u_csv_newton, "Points:1", "vel:0")
+        ax.plot(u_n, y_n, color=NEWTON_COLOR, linewidth=2, linestyle=SOLVER_LINESTYLES["newton"], zorder=4)
+
+    ax.set_xlabel("u")
+    ax.set_ylabel("y")
+    ax.set_xlim(-0.6, 1.2)
+    ax.set_ylim(-0.1, 1.1)
+    ax.set_title("u along vertical centerline (x = 0.5): segregated vs monolithic")
+    style_axes(ax)
+    ax.legend(handles=solver_comparison_legend_handles(), loc="best", frameon=False)
+    fig.text(0.5, 0.01, SOLVER_CAPTION, ha="center", color=INK, fontsize=9)
+    fig.tight_layout(rect=(0, 0.03, 1, 1))
+
+    fig.savefig(out_png, dpi=300)
+    print(f"wrote {out_png}")
+    if show:
+        plt.show(block=False)
+
+
+def plot_v_mid_solver_comparison(out_png, show):
+    fig, ax = plt.subplots(figsize=(6, 6))
+    for re in REYNOLDS_NUMBERS:
+        color = COLORS[re]
+        _, v_csv = sim_csv_paths(re, newton=False)
+        x, v = load_sim_profile(v_csv, "Points:0", "vel:1")
+        ax.plot(x, v, color=color, linewidth=2, linestyle=SOLVER_LINESTYLES["segregated"], zorder=3)
+
+        _, v_csv_newton = sim_csv_paths(re, newton=True)
+        x_n, v_n = load_sim_profile(v_csv_newton, "Points:0", "vel:1")
+        ax.plot(x_n, v_n, color=NEWTON_COLOR, linewidth=2, linestyle=SOLVER_LINESTYLES["newton"], zorder=4)
+
+    ax.set_xlabel("x")
+    ax.set_ylabel("v")
+    ax.set_xlim(-0.1, 1.1)
+    ax.set_ylim(-0.6, 0.6)
+    ax.set_title("v along horizontal centerline (y = 0.5): segregated vs monolithic")
+    style_axes(ax)
+    ax.legend(handles=solver_comparison_legend_handles(), loc="best", frameon=False)
+    fig.text(0.5, 0.01, SOLVER_CAPTION, ha="center", color=INK, fontsize=9)
+    fig.tight_layout(rect=(0, 0.03, 1, 1))
+
+    fig.savefig(out_png, dpi=300)
+    print(f"wrote {out_png}")
+    if show:
+        plt.show(block=False)
+
+
+def plot_u_mid_t02_comparison(out_png, show):
+    fig, ax = plt.subplots(figsize=(6, 6))
+    for re in REYNOLDS_NUMBERS:
+        color = COLORS[re]
+        u_csv, _ = sim_csv_paths(re, newton=False, t02=True)
+        y, u = load_sim_profile(u_csv, "Points:1", "vel:0")
+        ax.plot(u, y, color=color, linewidth=2, linestyle=SOLVER_LINESTYLES["segregated"], zorder=3)
+
+        u_csv_newton, _ = sim_csv_paths(re, newton=True, t02=True)
+        y_n, u_n = load_sim_profile(u_csv_newton, "Points:1", "vel:0")
+        ax.plot(u_n, y_n, color=NEWTON_COLOR, linewidth=2, linestyle=SOLVER_LINESTYLES["newton"], zorder=4)
+
+    ax.set_xlabel("u")
+    ax.set_ylabel("y")
+    ax.set_title("u along vertical centerline (x = 0.5), t = 0.2 s")
+    style_axes(ax)
+    ax.legend(handles=solver_comparison_legend_handles(), loc="best", frameon=False)
+    fig.text(0.5, 0.01, SOLVER_CAPTION, ha="center", color=INK, fontsize=9)
+    fig.tight_layout(rect=(0, 0.03, 1, 1))
+
+    fig.savefig(out_png, dpi=300)
+    print(f"wrote {out_png}")
+    if show:
+        plt.show(block=False)
+
+
+def plot_v_mid_t02_comparison(out_png, show):
+    fig, ax = plt.subplots(figsize=(6, 6))
+    for re in REYNOLDS_NUMBERS:
+        color = COLORS[re]
+        _, v_csv = sim_csv_paths(re, newton=False, t02=True)
+        x, v = load_sim_profile(v_csv, "Points:0", "vel:1")
+        ax.plot(x, v, color=color, linewidth=2, linestyle=SOLVER_LINESTYLES["segregated"], zorder=3)
+
+        _, v_csv_newton = sim_csv_paths(re, newton=True, t02=True)
+        x_n, v_n = load_sim_profile(v_csv_newton, "Points:0", "vel:1")
+        ax.plot(x_n, v_n, color=NEWTON_COLOR, linewidth=2, linestyle=SOLVER_LINESTYLES["newton"], zorder=4)
+
+    ax.set_xlabel("x")
+    ax.set_ylabel("v")
+    ax.set_title("v along horizontal centerline (y = 0.5), t = 0.2 s")
+    style_axes(ax)
+    ax.legend(handles=solver_comparison_legend_handles(), loc="best", frameon=False)
+    fig.text(0.5, 0.01, SOLVER_CAPTION, ha="center", color=INK, fontsize=9)
+    fig.tight_layout(rect=(0, 0.03, 1, 1))
+
+    fig.savefig(out_png, dpi=300)
+    print(f"wrote {out_png}")
+    if show:
+        plt.show(block=False)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--no-show", action="store_true",
@@ -146,6 +298,10 @@ def main():
     show = not args.no_show
     plot_u_mid(SCRIPT_DIR / "u_mid_comparison.png", show)
     plot_v_mid(SCRIPT_DIR / "v_mid_comparison.png", show)
+    plot_u_mid_solver_comparison(SCRIPT_DIR / "u_mid_solver_comparison.png", show)
+    plot_v_mid_solver_comparison(SCRIPT_DIR / "v_mid_solver_comparison.png", show)
+    plot_u_mid_t02_comparison(SCRIPT_DIR / "u_mid_t0.2_solver_comparison.png", show)
+    plot_v_mid_t02_comparison(SCRIPT_DIR / "v_mid_t0.2_solver_comparison.png", show)
 
     if show:
         plt.show()

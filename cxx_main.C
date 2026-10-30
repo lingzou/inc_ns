@@ -63,6 +63,8 @@ int main(int argc, char **argv)
   PetscBool buoyancy_flg = PETSC_FALSE;
   PetscBool newton_flg = PETSC_FALSE;
   double    T_init = 0.0;
+  double    u_init = 1.0;
+  double    v_init = 0.0;
 
   PetscOptionsGetString(NULL, NULL, "-problem", problem_name, sizeof(problem_name), &problem_specified);
   PetscOptionsGetString(NULL, NULL, "-mesh", mesh_file, sizeof(mesh_file), &mesh_specified);
@@ -83,6 +85,13 @@ int main(int argc, char **argv)
   PetscOptionsGetBool(NULL, NULL, "-buoyancy", &buoyancy_flg, NULL);
   BUOYANCY_ON = (bool)buoyancy_flg;
   PetscOptionsGetReal(NULL, NULL, "-T_init", &T_init, NULL);
+  // -u_init/-v_init are optional (default 1.0/0.0, the historical uniform guess equal
+  // to the lid velocity in the cavity case). At low viscosity this guess is far enough
+  // from no-slip walls that the first Newton linear solve can fail outright (see
+  // cavity_Re3200_newton.i); overriding to 0.0/0.0 there avoids that without touching
+  // the default behavior of every other input file.
+  PetscOptionsGetReal(NULL, NULL, "-u_init", &u_init, NULL);
+  PetscOptionsGetReal(NULL, NULL, "-v_init", &v_init, NULL);
   // -newton is optional (default false = the segregated Picard/SIMPLE path below).
   // Read here, after the PetscOptionsInsertFile() above, so it can be set either on the
   // command line or from the -i input file like every other option.
@@ -185,20 +194,18 @@ int main(int argc, char **argv)
       exit(1);
     }
 
+  // Cf/Cp/Cd/Cl are computed identically whichever path runs: the segregated loop below
+  // does it inline each step, and when NEWTON_ON the wall_faces/U_inf/D_ref/dir_* computed
+  // in this block are copied into NewtonSolverConfig so runNewtonSolver() can do the same
+  // (see newton_solver.C's time loop and WallForceFaceInfo in newton_solver.h).
   bool FORCE_ENABLED = !force_zone_list.empty();
-  if (FORCE_ENABLED && NEWTON_ON)
-  {
-    std::cout << "ERROR: -force_zones (Cf/Cp/Cd/Cl output) is not supported together with -newton true." << std::endl;
-    exit(1);
-  }
 
   // Per boundary face on a -force_zones zone: n_hat is the unit face normal pointing
   // from the adjacent fluid cell towards the wall (faceNormal()'s "cell 1 -> cell 2"
   // convention), and distance is the perpendicular distance from that cell's centroid
   // to the wall face -- the one-sided finite-difference denominator used below for the
   // wall-normal velocity gradient (i.e. wall shear stress).
-  struct WallFaceInfo { Face * face; long int cell_id1; Vec3d n_hat; double distance; };
-  std::vector<WallFaceInfo> wall_faces;
+  std::vector<WallForceFaceInfo> wall_faces;
   double U_inf = 0.0, D_ref = 0.0, dir_x = 1.0, dir_y = 0.0;
 
   if (FORCE_ENABLED)
@@ -254,7 +261,7 @@ int main(int argc, char **argv)
         Vec3d face_normal = faces[j]->faceNormal();
         double area = faces[j]->area();
         Vec3d n_hat(face_normal.x() / area, face_normal.y() / area, 0.0);
-        WallFaceInfo wf = {faces[j], cell_id1, n_hat, distance};
+        WallForceFaceInfo wf = {faces[j], cell_id1, n_hat, distance};
         wall_faces.push_back(wf);
       }
     }
@@ -497,14 +504,14 @@ int main(int argc, char **argv)
   VecDuplicate(u_STAR, &p_src_x);
   VecDuplicate(u_STAR, &p_src_y);
 
-  VecSet(u_STAR, 1.0);
-  VecSet(v_STAR, 0.0);
+  VecSet(u_STAR, u_init);
+  VecSet(v_STAR, v_init);
   VecSet(b_USTAR, 0.0);
   VecSet(b_VSTAR, 0.0);
   VecSet(b_USTAR_FINAL, 0.0);
   VecSet(b_VSTAR_FINAL, 0.0);
-  VecSet(u, 1.0);
-  VecSet(v, 0.0);
+  VecSet(u, u_init);
+  VecSet(v, v_init);
   VecSet(p, 0.0);
   VecSet(b_p, 0.0);
   VecSet(b_p_FINAL, 0.0);
@@ -919,6 +926,10 @@ int main(int argc, char **argv)
     cfg.output_interval = (int)output_interval;
     cfg.exoCtx = exoCtx;
     cfg.convergence_file = &convergence_file;
+    cfg.force_enabled = FORCE_ENABLED;
+    cfg.wall_faces = wall_faces;
+    cfg.force_U_inf = U_inf; cfg.force_D_ref = D_ref;
+    cfg.force_dir_x = dir_x; cfg.force_dir_y = dir_y;
 
     runNewtonSolver(cfg);
 
@@ -1091,7 +1102,7 @@ int main(int argc, char **argv)
       double Fx_p = 0.0, Fy_p = 0.0, Fx_f = 0.0, Fy_f = 0.0;
       for (unsigned int i = 0; i < wall_faces.size(); i++)
       {
-        const WallFaceInfo & wf = wall_faces[i];
+        const WallForceFaceInfo & wf = wall_faces[i];
         long int row = wf.cell_id1 - 1;
         Vec3d face_normal = wf.face->faceNormal();
         Fx_p += p_arr[row] * face_normal.x();

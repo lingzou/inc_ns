@@ -640,8 +640,49 @@ void runNewtonSolver(NewtonSolverConfig & cfg)
     VecAXPY(nc.u_old, -1.0, cfg.u); VecNorm(nc.u_old, NORM_2, &error_norm_u);
     VecAXPY(nc.v_old, -1.0, cfg.v); VecNorm(nc.v_old, NORM_2, &error_norm_v);
     VecAXPY(nc.T_old, -1.0, cfg.T); VecNorm(nc.T_old, NORM_2, &error_norm_T);
+
+    // Drag/lift coefficients on -force_zones, from the just-converged cfg.u/v/p --
+    // identical formula to the segregated loop's (cxx_main.C), so the two solvers'
+    // Cf/Cp/Cd/Cl are directly comparable.
+    double Cf = 0.0, Cp = 0.0, Cd = 0.0, Cl = 0.0;
+    if (cfg.force_enabled)
+    {
+      const PetscScalar * u_arr, * v_arr, * p_arr;
+      VecGetArrayRead(cfg.u, &u_arr);
+      VecGetArrayRead(cfg.v, &v_arr);
+      VecGetArrayRead(cfg.p, &p_arr);
+
+      double Fx_p = 0.0, Fy_p = 0.0, Fx_f = 0.0, Fy_f = 0.0;
+      for (unsigned int i = 0; i < cfg.wall_faces.size(); i++)
+      {
+        const WallForceFaceInfo & wf = cfg.wall_faces[i];
+        long int row = wf.cell_id1 - 1;
+        Vec3d face_normal = wf.face->faceNormal();
+        Fx_p += p_arr[row] * face_normal.x();
+        Fy_p += p_arr[row] * face_normal.y();
+
+        double Vx = u_arr[row], Vy = v_arr[row];
+        double Vn = Vx * wf.n_hat.x() + Vy * wf.n_hat.y();
+        double Vtx = Vx - Vn * wf.n_hat.x();
+        double Vty = Vy - Vn * wf.n_hat.y();
+        Fx_f += VISC * Vtx / wf.distance * wf.face->area();
+        Fy_f += VISC * Vty / wf.distance * wf.face->area();
+      }
+      VecRestoreArrayRead(cfg.u, &u_arr);
+      VecRestoreArrayRead(cfg.v, &v_arr);
+      VecRestoreArrayRead(cfg.p, &p_arr);
+
+      double denom = 0.5 * RHO * cfg.force_U_inf * cfg.force_U_inf * cfg.force_D_ref;
+      Cp = (Fx_p * cfg.force_dir_x + Fy_p * cfg.force_dir_y) / denom;
+      Cf = (Fx_f * cfg.force_dir_x + Fy_f * cfg.force_dir_y) / denom;
+      Cd = Cp + Cf;
+      Cl = ((Fx_p + Fx_f) * (-cfg.force_dir_y) + (Fy_p + Fy_f) * cfg.force_dir_x) / denom;
+    }
+
     *(cfg.convergence_file) << time_step << "," << error_norm_u << "," << error_norm_v
-                            << "," << error_norm_T << std::endl;
+                            << "," << error_norm_T;
+    if (cfg.force_enabled) *(cfg.convergence_file) << "," << Cf << "," << Cp << "," << Cd << "," << Cl;
+    *(cfg.convergence_file) << std::endl;
 
     bool computeStreamFunction = (time_step == cfg.n_timestep - 1);
     if ((time_step + 1) % cfg.output_interval == 0 || computeStreamFunction)

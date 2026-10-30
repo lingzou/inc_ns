@@ -86,6 +86,7 @@ def main():
     args = parser.parse_args()
 
     results = {}
+    comparison_rows = []
     print(f"{'Re':>4} {'Cp':>8} {'Cf':>8} {'Cp/Cd':>7} {'present':>8} "
           f"{'DennisChang':>12} {'err%':>7} {'DEB08':>8} {'err%':>7} "
           f"{'Cl':>10} {'u_L2_error':>11}")
@@ -98,12 +99,34 @@ def main():
         err = (present - ref) / ref * 100.0
         deb08 = DEB08_CD.get(Re_num)
         deb08_err = (present - deb08) / deb08 * 100.0 if deb08 is not None else None
+        cl = float(row["Cl"])
+        u_l2_error = float(row["u_L2_error"])
         results[Re_num] = present
         print(f"{Re_num:>4} {cp:>8.4f} {cf:>8.4f} {cp / present:>7.3f} {present:>8.4f} "
               f"{ref:>12.3f} {err:>6.2f}% "
               f"{'' if deb08 is None else f'{deb08:.3f}':>8} "
               f"{'' if deb08_err is None else f'{deb08_err:.2f}%':>7} "
-              f"{float(row['Cl']):>+10.2e} {float(row['u_L2_error']):>11.2e}")
+              f"{cl:>+10.2e} {u_l2_error:>11.2e}")
+        comparison_rows.append({
+            "Re": Re_num,
+            "Cp": cp,
+            "Cf": cf,
+            "Cp/Cd": cp / present,
+            "present": present,
+            "DennisChang": ref,
+            "err%": err,
+            "DEB08": deb08,
+            "DEB08_err%": deb08_err,
+            "Cl": cl,
+            "u_L2_error": u_l2_error,
+        })
+
+    comparison_csv = SCRIPT_DIR / "comparison.csv"
+    with open(comparison_csv, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(comparison_rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(comparison_rows)
+    print(f"wrote {comparison_csv.relative_to(REPO_ROOT)}")
 
     fig, ax = plt.subplots(figsize=(6, 5.5))
     ax.plot(RE_NUMBERS, [results[Re_num] for Re_num in RE_NUMBERS], color=ACCENT,
