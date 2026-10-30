@@ -126,13 +126,13 @@ Biswas, Breuer, and Durst (Biswas et al., 2004).
 
 | $`Re`$ | $`L_r/S`$ (Biswas et al.) | $`L_r/S`$ (this work) | Error (%) |
 |:---:|:---:|:---:|:---:|
-| 50  | 1.686 | 1.678 | $`-0.47`$ |
-| 100 | 2.872 | 2.852 | $`-0.69`$ |
-| 150 | 3.910 | 3.912 | $`0.04`$  |
-| 200 | 4.889 | 4.877 | $`-0.25`$ |
-| 250 | 5.824 | 5.780 | $`-0.76`$ |
-| 300 | 6.664 | 6.646 | $`-0.27`$ |
-| 400 | 8.172 | 8.152 | $`-0.24`$ |
+| 50  | 1.686 | 1.678 | -0.47 |
+| 100 | 2.872 | 2.852 | -0.69 |
+| 150 | 3.910 | 3.912 |  0.04 |
+| 200 | 4.889 | 4.877 | -0.25 |
+| 250 | 5.824 | 5.780 | -0.76 |
+| 300 | 6.664 | 6.646 | -0.27 |
+| 400 | 8.172 | 8.152 | -0.24 |
 
 <p align="center">
   <img src="figs/backward_facing_step/comparison.png" alt="Reattachment length vs Re" width="60%" />
@@ -147,7 +147,7 @@ Flow past a circular cylinder is an external-flow benchmark, in contrast to the 
 cases above, and tests the solver's handling of an immersed no-slip boundary together with a
 far-field that must be large enough not to contaminate the computed loads. The domain is a full
 rectangle $`50\times25`$ with a cylinder of diameter $`D=1`$ centered at $`(25,12.5)`$,
-i.e., 25 diameters from both the inlet and the outlet, giving a blockage ratio of only 4\% so that
+i.e., 25 diameters from both the inlet and the outlet, giving a blockage ratio of only 4% so that
 the top and bottom boundaries do not meaningfully confine the flow. A uniform velocity $`u=1`$ is
 imposed at the inlet, the top and bottom boundaries are slip walls, the outlet is a zero-gauge-pressure
 boundary, and the cylinder surface is no-slip, with the drag and lift forces obtained by integrating
@@ -158,7 +158,7 @@ circumference, a geometric growth ratio of 1.05 away from the surface, and a ref
 extending 14.5 diameters downstream. The velocity and pressure fields shown in
 Figures 3.8 and 3.9, together with the integrated pressure ($`C_p`$) and skin-friction ($`C_f`$) contributions to the drag
 coefficient $`C_D=C_p+C_f`$, are summarized in Table 3.2 alongside the reference values of Dennis and Chang
-(Dennis \& Chang, 1970) and of DEB08 (DEB08).
+(Dennis & Chang, 1970) and of DEB08 (DEB08).
 The computed $`C_D`$ agrees with Dennis and Chang to within $`5.8\%`$ and with DEB08 to within
 $`3.2\%`$ over this Reynolds number range.
 As $`Re`$ increases from $`10`$ to $`40`$, the pressure fraction of the drag, $`C_p/C_D`$, rises from
@@ -168,22 +168,22 @@ $`0.002`$ at all three Reynolds numbers, consistent with the expected steady, sy
 the onset of vortex shedding.
 
 **Table 3.2:** Flow past a cylinder: drag coefficient breakdown compared against Dennis and
-Chang (Dennis \& Chang, 1970) and DEB08 (DEB08), and between the two solvers of this work.
+Chang (Dennis & Chang, 1970) and DEB08 (DEB08), and between the two solvers of this work.
 
 | | | $`C_f`$ | $`C_p`$ | $`C_D`$ |
 |:---|:---|:---:|:---:|:---:|
 | **$`Re = 10`$** | This work (segregated) | 1.284 | 1.589 | 2.874 |
 | | This work (Newton)     | 1.294 | 1.630 | 2.925 |
 | | DEB08                  | 1.288 | 1.680 | 2.968 |
-| | Dennis \& Chang        | 1.246 | 1.600 | 2.846 |
+| | Dennis & Chang        | 1.246 | 1.600 | 2.846 |
 | **$`Re = 20`$** | This work (segregated) | 0.838 | 1.275 | 2.113 |
 | | This work (Newton)     | 0.847 | 1.270 | 2.118 |
 | | DEB08                  | 0.838 | 1.308 | 2.146 |
-| | Dennis \& Chang        | 0.812 | 1.233 | 2.045 |
+| | Dennis & Chang        | 0.812 | 1.233 | 2.045 |
 | **$`Re = 40`$** | This work (segregated) | 0.546 | 1.064 | 1.611 |
 | | This work (Newton)     | 0.555 | 1.043 | 1.598 |
 | | DEB08                  | 0.537 | 1.062 | 1.599 |
-| | Dennis \& Chang        | 0.522 | 0.998 | 1.522 |
+| | Dennis & Chang        | 0.522 | 0.998 | 1.522 |
 
 Table 3.2 also runs the same three cases through the monolithic Newton-Krylov solver (matrix-free, Schur-complement
 preconditioner), each driven to the same steady state as its segregated counterpart. The two solvers' $`C_D`$ values are close but
@@ -226,7 +226,7 @@ In this work, we studided the cases for $`Ra = 10^3`$, $`10^4`$, $`10^5`$, and $
 Figure 3.10 shows the temperature fields of these cases, spanning conduction-dominated transport at the lowest
 $`Ra`$ to a boundary-layer-dominated convective regime at the highest.
 The steady-state average Nusselt numbers, evaluated separately on the hot
-and cold walls as $`\overline{Nu}_{\text{hot}}`$ and $`\overline{Nu}_{\text{cold}}`$ (at an exactly
+and cold walls as $`\overline{Nu}_{hot}`$ and $`\overline{Nu}_{cold}`$ (at an exactly
 energy-conserving steady state the two should coincide)
 are reported in Table 3.3.
 The mismatch between the hot and code side values stays below $`0.05\%`$ at every $`Ra`$.
@@ -241,12 +241,12 @@ their mismatch, and the resulting $`\overline{Nu}`$, compared against de Vahl
 Davis (de Vahl Davis, 1983) and DEB08 (DEB08), alongside the $`L^2`$ norm of
 the steady-state temperature residual.
 
-| $`Ra`$ | $`\overline{Nu}_{\text{hot}}`$ | $`\overline{Nu}_{\text{cold}}`$ | Mismatch (%) | $`\overline{Nu}`$ | DEB08 | Error (%) | de Vahl Davis | Error (%) |
+| $`Ra`$ | $`\overline{Nu}_{hot}`$ | $`\overline{Nu}_{cold}`$ | Mismatch (%) | $`\overline{Nu}`$ | DEB08 | Error (%) | de Vahl Davis | Error (%) |
 |:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| $`10^3`$ | 1.1222 | 1.1219 | 0.032 | 1.1220 | 1.160 | $`-3.27`$ | 1.118 | 0.36 |
-| $`10^4`$ | 2.2547 | 2.2535 | 0.050 | 2.2541 | 2.247 | $`0.32`$  | 2.243 | 0.49 |
-| $`10^5`$ | 4.5938 | 4.5924 | 0.030 | 4.5931 | 4.613 | $`-0.43`$ | 4.519 | 1.64 |
-| $`10^6`$ | 9.2848 | 9.2835 | 0.014 | 9.2842 | 9.106 | $`1.96`$  | 8.800 | 5.51 |
+| $`10^3`$ | 1.1222 | 1.1219 | 0.032 | 1.1220 | 1.160 | -3.27 | 1.118 | 0.36 |
+| $`10^4`$ | 2.2547 | 2.2535 | 0.050 | 2.2541 | 2.247 | 0.32  | 2.243 | 0.49 |
+| $`10^5`$ | 4.5938 | 4.5924 | 0.030 | 4.5931 | 4.613 | -0.43 | 4.519 | 1.64 |
+| $`10^6`$ | 9.2848 | 9.2835 | 0.014 | 9.2842 | 9.106 | 1.96  | 8.800 | 5.51 |
 
 <p align="center">
   <img src="figs/heated_cavity/cavity_buoyancy_Ra1e3_temperature.png" alt="Ra = 1e3" width="45%" />

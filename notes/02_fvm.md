@@ -557,7 +557,7 @@ recall that $`D = -\nabla^2`$ and $`G = \Delta V \nabla`$.
 
 ### 2.5.2 Pressure Schur complement
 
-The saddle-point problem (Jacobian structure) can be solved directly, e.g.\ with a sparse LU factorization,
+The saddle-point problem (Jacobian structure) can be solved directly, e.g. with a sparse LU factorization,
 but it can also be reduced, exactly, to a problem in $`\delta p`$ alone by block elimination, the
 same manipulation used throughout the saddle-point literature for Stokes and Navier-Stokes systems.
 Writing the Newton update as $`\delta \mathbf{u}`$ and $`\delta p`$,

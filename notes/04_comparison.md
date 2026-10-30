@@ -21,7 +21,7 @@ expression written in terms of $`u^{n+1}`$, the velocity that actually solves th
 momentum equation.
 
 The two agree only to the extent that
-$`M^{-1}\Delta V\approx\Delta t\,I`$, i.e.\ only to the extent that the
+$`M^{-1}\Delta V\approx\Delta t\,I`$, i.e. only to the extent that the
 convection and diffusion parts of the momentum operator $`M`$ are
 negligible against $`\rho\Delta V/\Delta t`$, i.e. very small time step size.
 We demonstrate this using the lid-driven cavity problem with Re = 100,
